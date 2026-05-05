@@ -1,0 +1,22 @@
+{
+  "city": "hyderabad",
+  "country": "india",
+  "date_range": {
+    "start": "2020-01-01",
+    "end": "2024-12-31"
+  },
+  "roi": {
+    "name": "Hyderabad Urban + Peri-Urban",
+    "bbox_wgs84": [78.20, 17.20, 78.70, 17.70]
+  },
+  "sources": {
+    "sentinel_1": true,
+    "sentinel_2": true,
+    "era5": true,
+    "dem": true,
+    "ghsl": true,
+    "worldpop": true,
+    "osm_roads": true
+  }
+}
+

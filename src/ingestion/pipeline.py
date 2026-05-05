@@ -27,7 +27,7 @@ class IngestionPipeline:
     def __init__(self, settings: AppSettings, config: IngestionConfig, live_fetch: bool = False) -> None:
         self.settings = settings
         self.config = config
-        self.raw_root = settings.project_root / "data" / "raw"
+        self.raw_root = settings.project_root / "data" / "raw" / config.city
         self.cdse = CDSEClient(settings=settings)
         self.live_fetch = live_fetch
 
@@ -39,6 +39,54 @@ class IngestionPipeline:
                 continue
             self._run_source(source_name)
         self._log("Ingestion run finished.")
+
+    def run_smoke(self) -> None:
+        self._log("Starting ingestion smoke run (one window per enabled source).")
+        first_window = next(iter_month_windows(self.config.date_range.start, self.config.date_range.start))
+        for source_name, enabled in self.config.sources.items():
+            if not enabled:
+                self._log(f"Skipping disabled source: {source_name}")
+                continue
+            self._log(f"Smoke source start: {source_name}")
+            out_dir = self.raw_root / source_name / str(first_window.year) / f"{first_window.month:02d}"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                if source_name == "sentinel_1":
+                    payload = fetch_sentinel1_monthly_preprocessed(self.cdse, self.config.roi.bbox_wgs84, first_window, out_dir)
+                elif source_name == "sentinel_2":
+                    payload = fetch_sentinel2_monthly_preprocessed(self.cdse, self.config.roi.bbox_wgs84, first_window, out_dir)
+                elif source_name == "era5":
+                    full = fetch_era5_equivalent_timeseries(
+                        self.config.roi.bbox_wgs84,
+                        self.config.date_range.start,
+                        self.config.date_range.start,
+                    )
+                    payload = write_era5_month_from_timeseries(full, first_window, out_dir)
+                elif source_name == "dem":
+                    payload = fetch_dem_points(self.config.roi.bbox_wgs84, out_dir)
+                elif source_name == "osm_roads":
+                    payload = fetch_osm_roads(self.config.roi.bbox_wgs84, out_dir)
+                elif source_name == "worldpop":
+                    payload = write_worldpop_reference(first_window, out_dir)
+                elif source_name == "ghsl":
+                    payload = write_ghsl_reference(first_window, out_dir)
+                else:
+                    payload = {"status": "planned_source", "source": source_name}
+            except Exception as exc:
+                payload = {"status": "api_error", "source": source_name, "error": str(exc)}
+
+            manifest = build_manifest(
+                city=self.config.city,
+                country=self.config.country,
+                source_name=source_name,
+                window=first_window,
+                roi_name=self.config.roi.name,
+                bbox_wgs84=self.config.roi.bbox_wgs84,
+                payload=payload,
+            )
+            (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str), encoding="utf-8")
+            self._log(f"Smoke source done: {source_name}, status={payload.get('status', 'unknown')}")
+        self._log("Ingestion smoke run finished.")
 
     @staticmethod
     def _log(message: str) -> None:
@@ -136,7 +184,10 @@ class IngestionPipeline:
                             json.dumps(
                                 {
                                     "status": "reused_static_worldpop",
-                                    "reference": f"data/raw/{source_name}/{self.config.date_range.start.year}/01/worldpop_metadata.json",
+                                    "reference": (
+                                        f"data/raw/{self.config.city}/{source_name}/"
+                                        f"{self.config.date_range.start.year}/01/worldpop_metadata.json"
+                                    ),
                                 },
                                 indent=2,
                             ),
@@ -155,7 +206,7 @@ class IngestionPipeline:
                                 {
                                     "status": "reused_static_ghsl",
                                     "reference": (
-                                        "data/raw/ghsl/"
+                                        f"data/raw/{self.config.city}/ghsl/"
                                         f"{self.config.date_range.start.year}/01/"
                                         "GHS_BUILT_S_E2020_GLOBE_R2023A_4326_30ss_V1_0.zip"
                                     ),

@@ -3,3 +3,10 @@ execution_plan_ingestion_to_eval.md
 .env 
 .logs
 buildui.md
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+
+# Local datasets / artifacts
+data/raw/
