@@ -7,6 +7,3 @@ buildui.md
 # Python bytecode / caches
 __pycache__/
 *.py[cod]
-
-# Local datasets / artifacts
-data/raw/
