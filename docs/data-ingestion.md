@@ -2,9 +2,9 @@
 
 ## Scope
 
-Ingestion runs monthly for Bengaluru (`2020-01` to `2024-12`) and stores artifacts by source:
+Ingestion runs monthly for configured cities (`2020-01` to `2024-12`) and stores artifacts by city and source:
 
-`data/raw/<source>/<year>/<month>/`
+`data/raw/<city>/<source>/<year>/<month>/`
 
 ## Sources currently wired
 

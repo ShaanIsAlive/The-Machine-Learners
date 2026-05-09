@@ -255,13 +255,35 @@ def fetch_osm_roads(
         f'way["highway"]({south},{west},{north},{east});'
         "out body geom;"
     )
-    response = requests.post(
+    endpoints = (
         "https://overpass-api.de/api/interpreter",
-        data={"data": query},
-        timeout=120,
+        "https://overpass.kumi.systems/api/interpreter",
     )
-    response.raise_for_status()
-    payload = response.json()
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "the-machine-learners-ingestion/1.0",
+    }
+
+    last_error: Exception | None = None
+    payload: dict[str, Any] | None = None
+    for endpoint in endpoints:
+        try:
+            # Some Overpass instances reject form-encoded bodies with 406.
+            response = requests.post(
+                endpoint,
+                data=query.encode("utf-8"),
+                headers={**headers, "Content-Type": "text/plain; charset=utf-8"},
+                timeout=120,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            break
+        except Exception as exc:
+            last_error = exc
+
+    if payload is None:
+        assert last_error is not None
+        raise last_error
 
     out_path = out_dir / "roads_overpass.json"
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

@@ -26,7 +26,9 @@ def load_env_file(project_root: Path) -> None:
         key, value = line.split("=", 1)
         normalized_key = key.strip()
         normalized_value = value.strip().strip("'").strip('"')
-        os.environ.setdefault(normalized_key, normalized_value)
+        # Override only when missing or blank to preserve explicit non-empty process env values.
+        if not os.getenv(normalized_key):
+            os.environ[normalized_key] = normalized_value
 
 
 @dataclass(frozen=True)
