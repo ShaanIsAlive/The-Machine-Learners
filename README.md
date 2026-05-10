@@ -12,7 +12,7 @@ This repository implements the workflow defined as:
 
 ## Project at a glance
 
-- **Cities:** Bengaluru, Hyderabad, Mumbai
+- **Cities:** Bengaluru, Hyderabad, Mumbai, Pune
 - **Period:** 2020-01 to 2024-12
 - **Core output:** relative vulnerability scores (not flood depth)
 - **Main results:**
@@ -46,7 +46,7 @@ This repository implements the workflow defined as:
   - `GEE_PROJECT_ID`
 3. Run ingestion:
   - Single city: `python scripts/run_ingestion.py --city bengaluru`
-  - Multi-city: `python scripts/run_ingestion.py --city bengaluru --city hyderabad --city mumbai`
+  - Multi-city: `python scripts/run_ingestion.py --city bengaluru --city hyderabad --city mumbai --city pune`
   - All defaults: `python scripts/run_ingestion.py --all-default-cities`
 4. Run training workflow:
   - `python scripts/run_preprocessing.py --config config/bengaluru_2020_2024.json`

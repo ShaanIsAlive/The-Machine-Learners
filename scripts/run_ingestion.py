@@ -12,11 +12,17 @@ from src.common.settings import AppSettings, explain_loaded_keys  # noqa: E402
 from src.ingestion.config import IngestionConfig  # noqa: E402
 from src.ingestion.pipeline import IngestionPipeline  # noqa: E402
 
-DEFAULT_CITY_CONFIGS = {
-    "bengaluru": "config/bengaluru_2020_2024.json",
-    "hyderabad": "config/hyderabad_2020_2024.json",
-    "mumbai": "config/mumbai_2020_2024.json",
-}
+def discover_default_city_configs() -> dict[str, str]:
+    configs: dict[str, str] = {}
+    for path in sorted((PROJECT_ROOT / "config").glob("*_2020_2024.json")):
+        city = path.name.removesuffix("_2020_2024.json")
+        configs[city] = str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    if not configs:
+        raise RuntimeError("No default city configs found in config/*_2020_2024.json")
+    return configs
+
+
+DEFAULT_CITY_CONFIGS = discover_default_city_configs()
 
 
 def parse_args() -> argparse.Namespace:

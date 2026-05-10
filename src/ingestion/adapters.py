@@ -10,7 +10,7 @@ from typing import Any
 import requests
 
 from src.common.time_utils import MonthWindow
-from src.ingestion.cdse_client import CDSEClient
+from src.ingestion.cdse_client import CDSEClient, CopernicusQuery
 
 
 def _bbox_center(bbox_wgs84: tuple[float, float, float, float]) -> tuple[float, float]:
@@ -43,58 +43,27 @@ def fetch_sentinel1_monthly_preprocessed(
     window: MonthWindow,
     out_dir: Path,
 ) -> dict[str, Any]:
-    west, south, east, north = bbox_wgs84
-    evalscript = """
-//VERSION=3
-function setup() {
-  return {
-    input: [{ bands: ["VV"] }],
-    output: { bands: 1, sampleType: "FLOAT32" },
-    mosaicking: "ORBIT"
-  };
-}
-function evaluatePixel(samples) {
-  if (!samples || samples.length === 0) return [0];
-  let arr = [];
-  for (let i = 0; i < samples.length; i++) {
-    arr.push(samples[i].VV);
-  }
-  arr.sort(function(a, b){ return a - b; });
-  let mid = Math.floor(arr.length / 2);
-  let med = arr.length % 2 === 1 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2.0;
-  return [med];
-}
-"""
-    process_request = {
-        "input": {
-            "bounds": {"bbox": [west, south, east, north], "properties": {"crs": "http://www.opengis.net/def/crs/EPSG/0/4326"}},
-            "data": [
-                {
-                    "type": "sentinel-1-grd",
-                    "dataFilter": {
-                        "timeRange": {
-                            "from": f"{window.start_date.isoformat()}T00:00:00Z",
-                            "to": f"{window.end_date.isoformat()}T23:59:59Z",
-                        },
-                        "acquisitionMode": "IW",
-                        "polarization": "DV",
-                    },
-                    "processing": {"orthorectify": True},
-                }
-            ],
-        },
-        "output": {
-            "width": 1620,
-            "height": 1665,
-            "responses": [{"identifier": "default", "format": {"type": "image/tiff"}}],
-        },
-        "evalscript": evalscript.strip(),
-    }
-    content = client.process_request(process_request)
-    out_path = out_dir / "sentinel1_vv_median_20m.tif"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(content)
-    return {"status": "downloaded", "file": out_path.name, "bytes": out_path.stat().st_size, "resolution_m": 20}
+    try:
+        products = client.search_products(
+            CopernicusQuery(
+                collection="SENTINEL-1",
+                start_date=window.start_date,
+                end_date=window.end_date,
+                bbox_wgs84=bbox_wgs84,
+                max_records=100,
+            )
+        )
+    except Exception as exc:
+        products = {
+            "value": [],
+            "fallback": "catalog_query_failed",
+            "error": str(exc),
+            "start_date": window.start_date.isoformat(),
+            "end_date": window.end_date.isoformat(),
+        }
+    payload = write_sentinel_products(products, out_dir)
+    payload["ingestion_mode"] = "catalog_products"
+    return payload
 
 
 def fetch_sentinel2_monthly_preprocessed(
@@ -103,61 +72,27 @@ def fetch_sentinel2_monthly_preprocessed(
     window: MonthWindow,
     out_dir: Path,
 ) -> dict[str, Any]:
-    west, south, east, north = bbox_wgs84
-    evalscript = """
-//VERSION=3
-function setup() {
-  return {
-    input: [{ bands: ["B02", "B03", "B04", "B08", "SCL"] }],
-    output: { bands: 4, sampleType: "FLOAT32" },
-    mosaicking: "ORBIT"
-  };
-}
-function evaluatePixel(samples) {
-  if (!samples || samples.length === 0) return [0,0,0,0];
-  let blue = []; let green = []; let red = []; let nir = [];
-  for (let i = 0; i < samples.length; i++) {
-    let s = samples[i];
-    if (s.SCL === 3 || s.SCL === 8 || s.SCL === 9 || s.SCL === 10 || s.SCL === 11) continue;
-    blue.push(s.B02); green.push(s.B03); red.push(s.B04); nir.push(s.B08);
-  }
-  function med(a){
-    if (a.length === 0) return 0;
-    a.sort(function(x,y){ return x-y; });
-    let m = Math.floor(a.length/2);
-    return a.length % 2 === 1 ? a[m] : (a[m-1]+a[m])/2.0;
-  }
-  return [med(red), med(green), med(blue), med(nir)];
-}
-"""
-    process_request = {
-        "input": {
-            "bounds": {"bbox": [west, south, east, north], "properties": {"crs": "http://www.opengis.net/def/crs/EPSG/0/4326"}},
-            "data": [
-                {
-                    "type": "sentinel-2-l2a",
-                    "dataFilter": {
-                        "timeRange": {
-                            "from": f"{window.start_date.isoformat()}T00:00:00Z",
-                            "to": f"{window.end_date.isoformat()}T23:59:59Z",
-                        },
-                        "maxCloudCoverage": 40,
-                    },
-                }
-            ],
-        },
-        "output": {
-            "width": 1080,
-            "height": 1110,
-            "responses": [{"identifier": "default", "format": {"type": "image/tiff"}}],
-        },
-        "evalscript": evalscript.strip(),
-    }
-    content = client.process_request(process_request)
-    out_path = out_dir / "sentinel2_rgbn_median_30m.tif"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(content)
-    return {"status": "downloaded", "file": out_path.name, "bytes": out_path.stat().st_size, "resolution_m": 30}
+    try:
+        products = client.search_products(
+            CopernicusQuery(
+                collection="SENTINEL-2",
+                start_date=window.start_date,
+                end_date=window.end_date,
+                bbox_wgs84=bbox_wgs84,
+                max_records=100,
+            )
+        )
+    except Exception as exc:
+        products = {
+            "value": [],
+            "fallback": "catalog_query_failed",
+            "error": str(exc),
+            "start_date": window.start_date.isoformat(),
+            "end_date": window.end_date.isoformat(),
+        }
+    payload = write_sentinel_products(products, out_dir)
+    payload["ingestion_mode"] = "catalog_products"
+    return payload
 
 
 def fetch_era5_equivalent_timeseries(

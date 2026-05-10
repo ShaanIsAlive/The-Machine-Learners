@@ -23,7 +23,7 @@ python scripts/run_evaluation.py
 For a targeted ingestion run, you can also pass city shortcuts:
 
 ```bash
-python scripts/run_ingestion.py --city bengaluru --city hyderabad --city mumbai
+python scripts/run_ingestion.py --city bengaluru --city hyderabad --city mumbai --city pune
 ```
 
 ## Serving run

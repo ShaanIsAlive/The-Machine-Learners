@@ -72,19 +72,33 @@ class CDSEClient:
         return f"{CDSE_CATALOG_URL}?$filter={encoded_filter}&$top={query.max_records}"
 
     def search_products(self, query: CopernicusQuery) -> dict:
-        token = self.authenticate()
         url = self.build_catalog_url(query)
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=60,
-        )
-        response.raise_for_status()
-        return response.json()
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            try:
+                if attempt > 1:
+                    self._token = None
+                token = self.authenticate()
+                response = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=(20, 120),
+                )
+                if response.status_code == 401:
+                    self._token = None
+                    raise RuntimeError("CDSE catalog token expired/unauthorized")
+                response.raise_for_status()
+                return response.json()
+            except Exception as exc:
+                last_error = exc
+                print(f"[cdse] catalog retry after error: {exc}", flush=True)
+                time.sleep(min(2**attempt, 5))
+        raise RuntimeError(f"CDSE catalog request failed after retries: {last_error}")
 
     def process_request(self, request_payload: dict) -> bytes:
         last_error: Exception | None = None
-        for attempt in range(1, 4):
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
             try:
                 print(f"[cdse] process attempt {attempt}", flush=True)
                 token = self.authenticate()
@@ -96,7 +110,7 @@ class CDSEClient:
                         "Accept": "image/tiff",
                     },
                     json=request_payload,
-                    timeout=(30, 300),
+                    timeout=(20, 120),
                 )
                 if response.status_code == 401:
                     self._token = None
@@ -107,5 +121,5 @@ class CDSEClient:
             except Exception as exc:
                 last_error = exc
                 print(f"[cdse] process retry after error: {exc}", flush=True)
-                time.sleep(min(2**attempt, 8))
+                time.sleep(min(2**attempt, 5))
         raise RuntimeError(f"CDSE process request failed after retries: {last_error}")
