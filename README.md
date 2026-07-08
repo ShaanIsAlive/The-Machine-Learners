@@ -1,82 +1,257 @@
-# Urban Flood Vulnerability Forecasting - Multi-City India (2020-2024)
+# Urban Flood Vulnerability Forecasting — Multi-City India (2020–2024)
 
-Production-oriented flood vulnerability forecasting system using public earth observation and environmental signals.
+A monthly flood vulnerability forecasting system for Indian cities built on public earth observation, climate reanalysis, terrain, and population signals.
+Designed for urban planners, municipal flood preparedness teams, and disaster management agencies.
+The system produces **relative vulnerability scores (0–1)**, not flood water depth or inundation maps.
 
-This repository implements the workflow defined as:
+## Why this project exists
 
-- data ingestion (multi-source, monthly)
-- preprocessing + feature construction
-- temporal vulnerability modeling
-- scoring + evaluation
-- API + decision-maker UI
+Urban flood events across Indian cities cause recurring infrastructure damage and displace residents each monsoon season. Decision-makers lack forward-looking, data-driven tools to prioritize drainage intervention, allocate preparedness resources, and plan preventive action before the rains arrive. This project fills that gap by combining satellite imagery, rainfall data, terrain elevation, built-up surface data, population exposure, and road network density into a monthly vulnerability forecast for four cities.
+
+## Architecture flow
+
+```mermaid
+flowchart LR
+    A[City Configs<br/>config/*.json]
+    B[Ingestion]
+    C[Raw Data]
+    D[Preprocessing]
+    E[Processed Parquets]
+    F[Feature Build]
+    G[Feature Datasets]
+    H[Training]
+    I[Models + Metrics]
+    J[Inference]
+    K[Vulnerability Scores]
+    L[Evaluation]
+    M[Evaluation Metrics]
+    N[FastAPI]
+    O[Streamlit Dashboard]
+
+    A --> B
+    B --> C
+    A --> D
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    G --> J
+    I --> J
+    J --> K
+    K --> L
+    L --> M
+    K --> N
+    I --> N
+    M --> N
+    N --> O
+```
+
+
+## Core capabilities
+
+- Multi-source monthly data ingestion (Sentinel-1, Sentinel-2, ERA5, DEM, GHSL, WorldPop, OSM)
+- Automated preprocessing into per-tile flood stress features on an 8×8 spatial grid
+- Temporal regression modeling with lagged and rolling features
+- Chronological train/validation/test evaluation (no data leakage)
+- Scored vulnerability output with per-tile rankings
+- Read-only REST API serving results from generated artifacts
+- Interactive Streamlit decision-support dashboard with city selector, risk maps, zone priorities, preparedness trends, scenario simulation, and preventive action engine
 
 ## Project at a glance
 
-- **Cities:** Bengaluru, Hyderabad, Mumbai, Pune
-- **Period:** 2020-01 to 2024-12
-- **Core output:** relative vulnerability scores (not flood depth)
-- **Main results:**
-  - `data/results/vulnerability_scores.parquet`
-  - `data/results/evaluation.json`
-  - `data/results/training_metrics.json`
+| Item | Value |
+|------|-------|
+| **Cities** | Bengaluru, Hyderabad, Mumbai, Pune |
+| **Coverage** | January 2020 – December 2024 (60 months per city) |
+| **Tiles per city** | 64 (8×8 grid) |
+| **Training rows** | 15,360 (4 cities × 64 tiles × 60 months) |
+| **Selected model** | `HistGradientBoostingRegressor` (`hist_gbrt`) — scikit-learn |
+| **Test MAE** | 0.1053 (45.6% improvement over Ridge baseline) |
+| **Test R²** | 0.6797 |
+| **Core output** | Relative vulnerability scores (0–1), not flood depth |
+
+## Tech stack
+
+| Component | Technology |
+|-----------|------------|
+| Language | Python |
+| ML framework | scikit-learn |
+| Data handling | pandas, numpy, pyarrow |
+| Geospatial | rasterio, shapely |
+| API | FastAPI, uvicorn |
+| Dashboard | Streamlit |
+| Model persistence | joblib |
+| HTTP client | requests |
+
+## Modeling approach
+
+- **Target:** `target_next_month` — next month's flood risk, derived from threshold-based labeling on low-lying terrain score and rainfall accumulation
+- **Baseline model:** Ridge regression (`alpha=1.0`) on 5 raw features — test MAE 0.1935, test R² 0.3665
+- **Selected temporal model:** `HistGradientBoostingRegressor` (`max_depth=12`, `learning_rate=0.03`, `max_iter=900`) — test MAE 0.1053, test R² 0.6797
+- **Temporal features:** 5 base features × 4 temporal transforms (lag1, lag2, lag3, roll3) = 25 features total
+- **Model selection:** Best validation MAE across 6 candidates (RandomForest ×2, ExtraTrees ×2, HistGBRT ×2)
+- **Evaluation:** Spearman rank correlation (0.3523) against monsoon seasonality proxy; high vs low vulnerability gap (0.5728)
+- **Chronological split:**
+  - Train: up to 2022-11
+  - Validation: 2022-12 to 2023-11
+  - Test: 2023-12 to 2024-11
+
+## Data sources
+
+| Source | Signal |
+|--------|--------|
+| Sentinel-1 / Sentinel-2 | SAR water persistence (product count proxy) |
+| ERA5 (Open-Meteo) | Daily rainfall accumulation |
+| Copernicus DEM GLO-30 | Low-lying terrain score |
+| GHSL (JRC) | Built-up surface reference |
+| WorldPop | Population exposure proxy |
+| OSM (Overpass) | Road density / impervious change rate |
 
 ## Repository structure
 
-- `config/` runtime configs
-- `src/ingestion/` source adapters and ingestion pipeline
-- `src/preprocessing/` flood stress signal generation
-- `src/features/` model dataset builder
-- `src/models/` temporal model training logic
-- `src/training/` model training pipeline
-- `src/inference/` score generation
-- `src/evaluation/` evaluation pipeline
-- `src/api/` FastAPI endpoints
-- `src/frontend/` Streamlit dashboard
-- `scripts/` runnable entrypoints
-- `data/` raw, processed, features, and results artifacts
+```
+The-Machine-Learners/
+├── config/                     # Per-city JSON configs (bbox, date range, sources)
+├── src/
+│   ├── common/                 # Settings, time utilities
+│   ├── ingestion/              # Source adapters, CDSE client, pipeline
+│   ├── preprocessing/          # Raw → processed monthly parquets
+│   ├── features/               # Processed → model-ready dataset
+│   ├── models/                 # TemporalTrainer (model selection logic)
+│   ├── training/               # TrainingPipeline orchestrator
+│   ├── inference/              # InferencePipeline (scoring)
+│   ├── evaluation/             # EvaluationPipeline (metrics)
+│   ├── api/                    # FastAPI application
+│   └── frontend/               # Streamlit dashboard
+├── scripts/                    # Runnable entrypoints (one per pipeline step)
+├── data/
+│   ├── raw/                    # Per-city, per-source, per-month raw files
+│   ├── processed/              # Monthly parquets (64 rows each)
+│   ├── features/               # Model-ready datasets
+│   └── results/                # Trained models, metrics, scored output
+├── docs/                       # MkDocs documentation pages
+├── mkdocs.yml
+├── requirements.txt
+└── README.md
+```
 
 ## Quick start
 
-1. Install dependencies:
-  - `python -m pip install -r requirements.txt`
-2. Ensure `.env` contains:
-  - `CDS_API_KEY`
-  - `CDSE_CLIENT_ID`
-  - `CDSE_CLIENT_SECRET`
-  - `GEE_PROJECT_ID`
-3. Run ingestion:
-  - Single city: `python scripts/run_ingestion.py --city bengaluru`
-  - Multi-city: `python scripts/run_ingestion.py --city bengaluru --city hyderabad --city mumbai --city pune`
-  - All defaults: `python scripts/run_ingestion.py --all-default-cities`
-4. Run training workflow:
-  - `python scripts/run_preprocessing.py --config config/bengaluru_2020_2024.json`
-  - `python scripts/run_feature_build.py --city bengaluru`
-  - `python scripts/run_training.py`
-  - `python scripts/run_inference.py`
-  - `python scripts/run_evaluation.py`
+### 1. Install dependencies
 
-## Run services
+```bash
+pip install -r requirements.txt
+```
 
-- API server:
-  - `python scripts/run_api.py`
-- UI dashboard:
-  - `python scripts/run_frontend.py`
+### 2. Configure environment
+
+Create a `.env` file (or set environment variables) with:
+
+```
+CDS_API_KEY=<your Climate Data Store API key>
+CDSE_CLIENT_ID=<your Copernicus Data Space Ecosystem client ID>
+CDSE_CLIENT_SECRET=<your Copernicus Data Space Ecosystem client secret>
+GEE_PROJECT_ID=<your Google Earth Engine project ID>
+```
+
+Optional (frontend only):
+
+```
+FLOOD_API_BASE=http://127.0.0.1:8000
+```
+
+The Streamlit dashboard reads `FLOOD_API_BASE` and defaults to `http://127.0.0.1:8000` if not set.
+
+### 3. Start the API
+
+```bash
+python scripts/run_api.py
+```
+
+Runs on `0.0.0.0:8000`.
+
+### 4. Start the dashboard
+
+```bash
+python scripts/run_frontend.py
+```
+
+## Run the full pipeline
+
+Run all steps for all four cities:
+
+```bash
+python scripts/run_ingestion.py --all-default-cities
+python scripts/run_preprocessing.py --all-default-cities
+python scripts/run_feature_build.py --all-default-cities
+python scripts/run_training.py
+python scripts/run_inference.py
+python scripts/run_evaluation.py
+```
+
+## Single-city example
+
+```bash
+python scripts/run_ingestion.py --city bengaluru
+python scripts/run_preprocessing.py --city bengaluru
+python scripts/run_feature_build.py --city bengaluru
+python scripts/run_training.py
+python scripts/run_inference.py
+python scripts/run_evaluation.py
+```
+
+Ingestion also supports `--live-fetch` to enable live CDSE API calls for Sentinel sources:
+
+```bash
+python scripts/run_ingestion.py --city bengaluru --live-fetch
+```
 
 ## API endpoints
 
-- `GET /vulnerability/latest`
-- `GET /vulnerability/by_zone`
-- `GET /vulnerability/timeseries`
-- `GET /metadata`
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/vulnerability/latest` | Latest-month tile scores; `?limit=` (default 200, max 10000) |
+| `GET` | `/vulnerability/by_zone` | Zone-binned mean scores; `?year_month=&bins_lat=8&bins_lon=8` |
+| `GET` | `/vulnerability/timeseries` | Monthly average vulnerability trend |
+| `GET` | `/metadata` | Dataset coverage, months, sources, training + evaluation metrics |
 
-## Full documentation
+All endpoints are read-only over `data/results/`. No model training or inference runs inside request handling.
 
-Comprehensive developer docs are available in `docs/` with MkDocs configuration in `mkdocs.yml`.
+## Main outputs
 
-To run docs locally:
+### Results (`data/results/`)
 
-1. Install docs dependencies:
-  - `python -m pip install mkdocs mkdocs-material`
-2. Start docs server:
-  - `mkdocs serve`
+| File | Description |
+|------|-------------|
+| `vulnerability_scores.parquet` | Scored vulnerability output with per-tile rankings |
+| `training_metrics.json` | Model selection, training/validation/test metrics |
+| `evaluation.json` | Post-inference evaluation (Spearman, high/low gap) |
+| `feature_importance.json` | Feature importances (currently empty — see Notes) |
+| `models/baseline_model.joblib` | Trained Ridge baseline |
+| `models/temporal_model.joblib` | Trained HistGradientBoostingRegressor |
 
+### Datasets (`data/features/`)
+
+| File | Description |
+|------|-------------|
+| `flood_dataset_multicity.parquet` | 4-city combined dataset (used for training) |
+| `flood_dataset.parquet` | Single-city dataset (Bengaluru only) |
+
+## Documentation
+
+Developer documentation is available in `docs/` with MkDocs configuration in `mkdocs.yml`.
+
+```bash
+pip install mkdocs mkdocs-material
+mkdocs serve
+```
+
+## Notes
+
+- **Relative vulnerability, not hydraulic depth.** Scores represent relative flood stress priority (0–1), not physical water levels. They are intended for planning and preparedness, not for engineering flood simulation.
+- **Planning and preparedness use.** The dashboard and API are designed for pre-monsoon prioritization: identifying high-risk zones, estimating exposure, and recommending preventive actions.
+- **Dashboard and API consume generated result artifacts.** The API serves data from `data/results/` files. Run the full pipeline before starting the API or dashboard.
+- **Multi-city combined dataset.** Training uses `flood_dataset_multicity.parquet` (all four cities pooled) when available; falls back to `flood_dataset.parquet` if the multi-city file is absent.
+- **Feature importance is currently empty.** `HistGradientBoostingRegressor` does not expose `feature_importances_` in the installed scikit-learn version. The code handles this gracefully.
