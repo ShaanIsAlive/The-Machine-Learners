@@ -12,10 +12,32 @@ from src.models.temporal import TemporalTrainer
 
 class InferencePipeline:
     def __init__(self, project_root: Path) -> None:
-        self.project_root = project_root
-        self.dataset_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        multicity_path = project_root / "data" / "features" / "flood_dataset_multicity.parquet"
+        single_city_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        if multicity_path.exists():
+            self.dataset_path = multicity_path
+            print(f"[inference pipeline] Using multi-city dataset: {multicity_path}")
+        elif single_city_path.exists():
+            self.dataset_path = single_city_path
+            print(f"[inference pipeline] Using single-city dataset: {single_city_path.name}")
+        else:
+            raise FileNotFoundError(
+                        "No dataset found. run: python scripts/run_feature_build.py"
+                    )
         self.model_path = project_root / "data" / "results" / "models" / "temporal_model.joblib"
         self.results_path = project_root / "data" / "results" / "vulnerability_scores.parquet"
+
+
+        # self.project_root = project_root
+        # # Prefer multi-city dataset if it exists; fall back to single-city.
+        # multicity_path = project_root / "data" / "features" / "flood_dataset_multicity.parquet"
+        # singlecity_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        # if multicity_path.exists():
+        #     self.dataset_path = multicity_path
+        # else:
+        #     self.dataset_path = singlecity_path
+        #self.model_path = project_root / "data" / "results" / "models" / "temporal_model.joblib"
+        #self.results_path = project_root / "data" / "results" / "vulnerability_scores.parquet"
 
     def run(self) -> Path:
         if not self.dataset_path.exists():
@@ -39,9 +61,22 @@ class InferencePipeline:
         max_val = float(np.max(raw_scores))
         norm_scores = (raw_scores - min_val) / (max_val - min_val + 1e-9)
 
-        output = inference_frame[["tile_id", "year", "month", "year_month", "lon", "lat"]].copy()
+        # Preserve city column for multi-city support.
+        output_cols = ["tile_id", "year", "month", "year_month", "lon", "lat"]
+        if "city" in inference_frame.columns:
+            output_cols.insert(0, "city")
+        output = inference_frame[output_cols].copy()
         output["vulnerability_score"] = norm_scores
-        output["vulnerability_rank"] = output["vulnerability_score"].rank(method="average", ascending=False)
+
+        # Rank per city+month combination (not globally across all cities).
+        if "city" in output.columns:
+            output["vulnerability_rank"] = output.groupby(["city", "year_month"])[
+                "vulnerability_score"
+            ].rank(method="average", ascending=False)
+        else:
+            output["vulnerability_rank"] = output["vulnerability_score"].rank(
+                method="average", ascending=False
+            )
 
         self.results_path.parent.mkdir(parents=True, exist_ok=True)
         output.to_parquet(self.results_path, index=False)

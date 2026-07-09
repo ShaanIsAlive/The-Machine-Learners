@@ -24,8 +24,8 @@ def _add_temporal_lags_and_target(df: pd.DataFrame) -> pd.DataFrame:
             frame.groupby("tile_id")[col].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
         )
 
-    # Production-safe target: predict next month's vulnerability proxy.
-    frame["target_next_month"] = frame.groupby("tile_id")["target_vulnerability_proxy"].shift(-1)
+    # Production-safe target: predict next month's flood risk.
+    frame["target_next_month"] = frame.groupby("tile_id")["target_flood_risk"].shift(-1)
     frame["time_id"] = frame["year"] * 100 + frame["month"]
     return frame.dropna().reset_index(drop=True)
 

@@ -12,9 +12,23 @@ from src.models.temporal import TemporalTrainer
 class TrainingPipeline:
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root
-        self.dataset_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        # Prefer multi-city dataset if it exists; fall back to single-city.
+        multicity_path = project_root / "data" / "features" / "flood_dataset_multicity.parquet"
+        single_city_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        if multicity_path.exists():
+            self.dataset_path = multicity_path
+            print(f"[training pipeline] Using multi-city dataset: {multicity_path}")
+        elif single_city_path.exists():
+            self.dataset_path = single_city_path
+            print(f"[training pipeline] Using single-city dataset: {single_city_path.name}")
+        else:
+            raise FileNotFoundError(
+                "No dataset found. run: python scripts/run_feature_build.py --all-default-cities"
+            )        
+
         self.models_root = project_root / "data" / "results" / "models"
-        self.results_root = project_root / "data" / "results"
+        self.results_root = project_root / "data" / "results"  
+
 
     def run(self) -> dict:
         if not self.dataset_path.exists():
