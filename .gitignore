@@ -7,3 +7,10 @@ buildui.md
 # Python bytecode / caches
 __pycache__/
 *.py[cod]
+
+
+.vscode/
+data/raw/
+data/processed/
+data/features/*backup*
+data/features/flood_dataset_multicity.parquet
