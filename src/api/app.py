@@ -76,10 +76,20 @@ def metadata() -> dict[str, Any]:
 @app.get("/vulnerability/timeseries")
 def vulnerability_timeseries() -> dict[str, Any]:
     df = _load_scores().copy()
-    grouped = (
-        df.groupby("year_month", as_index=False)["vulnerability_score"]
+    if "city" in df.columns:
+        grouped = (
+        df.groupby(["city","year_month"], as_index=False) ["vulnerability_score"]
         .mean()
-        .sort_values("year_month")
+        .sort_values(["city", "year_month"])
         .reset_index(drop=True)
     )
+    
+    else: 
+        grouped = (
+        df.groupby(["year_month"], as_index=False)["vulnerability_score"]
+        .mean()
+        .sort_values(["year_month"])
+        .reset_index(drop=True)
+    )
+
     return {"count": int(grouped.shape[0]), "rows": grouped.to_dict(orient="records")}

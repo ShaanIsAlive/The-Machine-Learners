@@ -135,9 +135,7 @@ map_df["location"] = map_df.apply(
 map_df["map_link"] = map_df.apply(
     lambda r: f"https://maps.google.com/?q={float(r['lat']):.6f},{float(r['lon']):.6f}", axis=1
 )
-map_df["estimated_exposure"] = map_df["risk_tier"].map(
-    {"Extreme": 1800, "High": 1400, "Moderate": 900, "Low": 500}
-)
+map_df["estimated_exposure"] = ( map_df["vulnerability_score"] * 2000) .round() .astype(int)  # rough estimate of residents in each zone
 map_df["dominant_stress_factor"] = map_df.apply(
     lambda r: dominant_stress_factor(str(r["year_month"]), float(r["vulnerability_score"])), axis=1
 )
@@ -150,7 +148,7 @@ latest_risk  = classify_city_risk(latest_avg)
 
 # Use tier-based high count — not hardcoded 0.55 threshold
 high_tier         = int(map_df["risk_tier"].isin(["Extreme", "High"]).sum())
-estimated_exposed = int(map_df["risk_tier"].map(TIER_POP).sum())
+estimated_exposed = int(map_df["estimated_exposure"].sum())
 drainage_hotspot_wards = max(1, int(round(high_tier / 8.0)))
 
 if not series_df.empty and len(series_df) >= 13:
@@ -232,14 +230,17 @@ with main_tab:
     impact_df = pd.DataFrame({
         "Risk tier":          tier_counts.index,
         "Zones":              tier_counts.values,
-        "Estimated residents": [tier_counts.get(t, 0) * TIER_POP[t] for t in tier_counts.index],
+        "Estimated residents": [ 
+            int(map_df.loc[map_df["risk_tier"] == t, "estimated_exposure"].sum())
+            for t in tier_counts.index
+        ],
     })
     st.bar_chart(impact_df.set_index("Risk tier")[["Estimated residents"]])
 
     ic1, ic2, ic3, ic4 = st.columns(4)
     hi_extreme_residents = int(
-        map_df[map_df["risk_tier"].isin(["Extreme","High"])]["risk_tier"]
-        .map(TIER_POP).sum()
+        map_df.loc[map_df["risk_tier"].isin(["Extreme","High"]),
+         "estimated_exposure"].sum()
     )
     estimated_facilities = max(0, int(high_tier / 5))
     economic_disruption  = min(100.0, (hi_extreme_residents / 1000.0) * 0.9)
