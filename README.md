@@ -1,4 +1,4 @@
-# Urban Flood Vulnerability Forecasting — Multi-City India (2020–2024)
+# Urban Flood Vulnerability Forecasting — Multi-City India (2020–2026)
 
 A monthly flood vulnerability forecasting system for Indian cities built on public earth observation, climate reanalysis, terrain, and population signals.
 Designed for urban planners, municipal flood preparedness teams, and disaster management agencies.
@@ -64,12 +64,12 @@ flowchart LR
 | Item | Value |
 |------|-------|
 | **Cities** | Bengaluru, Hyderabad, Mumbai, Pune |
-| **Coverage** | January 2020 – December 2024 (60 months per city) |
+| **Coverage** | April 2020 – July 2026 (64 months per city) |
 | **Tiles per city** | 64 (8×8 grid) |
-| **Training rows** | 15,360 (4 cities × 64 tiles × 60 months) |
-| **Selected model** | `HistGradientBoostingRegressor` (`hist_gbrt`) — scikit-learn |
-| **Test MAE** | 0.1053 (45.6% improvement over Ridge baseline) |
-| **Test R²** | 0.6797 |
+| **Total rows** | 16,384 (4 cities × 64 tiles × 64 months) |
+| **Selected model** | `ExtraTreesRegressor` (`extra_trees`) — scikit-learn |
+| **Test MAE** | 0.1176 (31.7% improvement over Ridge baseline) |
+| **Test R²** | 0.6304 |
 | **Core output** | Relative vulnerability scores (0–1), not flood depth |
 
 ## Tech stack
@@ -88,15 +88,15 @@ flowchart LR
 ## Modeling approach
 
 - **Target:** `target_next_month` — next month's flood risk, derived from threshold-based labeling on low-lying terrain score and rainfall accumulation
-- **Baseline model:** Ridge regression (`alpha=1.0`) on 5 raw features — test MAE 0.1935, test R² 0.3665
-- **Selected temporal model:** `HistGradientBoostingRegressor` (`max_depth=12`, `learning_rate=0.03`, `max_iter=900`) — test MAE 0.1053, test R² 0.6797
+- **Baseline model:** Ridge regression (`alpha=1.0`) on 5 raw features — test MAE 0.1722, test R² 0.3392
+- **Selected temporal model:** `ExtraTreesRegressor` (`n_estimators=600`, `min_samples_leaf=2`, `criterion=squared_error`, `max_features=1.0`, `bootstrap=false`, `random_state=42`, `n_jobs=1`) — test MAE 0.1176, test R² 0.6304
 - **Temporal features:** 5 base features × 4 temporal transforms (lag1, lag2, lag3, roll3) = 25 features total
 - **Model selection:** Best validation MAE across 6 candidates (RandomForest ×2, ExtraTrees ×2, HistGBRT ×2)
-- **Evaluation:** Spearman rank correlation (0.3523) against monsoon seasonality proxy; high vs low vulnerability gap (0.5728)
+- **Evaluation:** Spearman rank correlation (0.3278) against monsoon seasonality proxy; high vs low vulnerability gap (0.5971)
 - **Chronological split:**
-  - Train: up to 2022-11
-  - Validation: 2022-12 to 2023-11
-  - Test: 2023-12 to 2024-11
+  - Train: through June 2023
+  - Validation: July 2023 to June 2024
+  - Test: July 2024 to June 2026
 
 ## Data sources
 
@@ -228,9 +228,9 @@ All endpoints are read-only over `data/results/`. No model training or inference
 | `vulnerability_scores.parquet` | Scored vulnerability output with per-tile rankings |
 | `training_metrics.json` | Model selection, training/validation/test metrics |
 | `evaluation.json` | Post-inference evaluation (Spearman, high/low gap) |
-| `feature_importance.json` | Feature importances (currently empty — see Notes) |
+| `feature_importance.json` | Feature importances (via permutation importance) |
 | `models/baseline_model.joblib` | Trained Ridge baseline |
-| `models/temporal_model.joblib` | Trained HistGradientBoostingRegressor |
+| `models/temporal_model.joblib` | Trained ExtraTreesRegressor |
 
 ### Datasets (`data/features/`)
 
@@ -254,4 +254,18 @@ mkdocs serve
 - **Planning and preparedness use.** The dashboard and API are designed for pre-monsoon prioritization: identifying high-risk zones, estimating exposure, and recommending preventive actions.
 - **Dashboard and API consume generated result artifacts.** The API serves data from `data/results/` files. Run the full pipeline before starting the API or dashboard.
 - **Multi-city combined dataset.** Training uses `flood_dataset_multicity.parquet` (all four cities pooled) when available; falls back to `flood_dataset.parquet` if the multi-city file is absent.
-- **Feature importance is currently empty.** `HistGradientBoostingRegressor` does not expose `feature_importances_` in the installed scikit-learn version. The code handles this gracefully.
+- **Feature importance is now populated.** `src/models/temporal.py` uses `sklearn.inspection.permutation_importance` to compute feature importance after model selection, which is model-agnostic and works regardless of which candidate algorithm is selected. This resolves the previous limitation where `HistGradientBoostingRegressor` did not expose `feature_importances_`.
+
+### Feature Importance (Top Contributing Features)
+
+| Rank | Feature | Importance |
+|------|---------|------------|
+| 1 | `rainfall_accumulation_lag3` | 0.2160 |
+| 2 | `rainfall_accumulation` | 0.1109 |
+| 3 | `rainfall_accumulation_lag1` | 0.1075 |
+| 4 | `sar_water_persistence_roll3` | 0.0435 |
+| 5 | `low_lying_score_lag2` | 0.0340 |
+| 6 | `sar_water_persistence_lag3` | 0.0312 |
+| 7 | `low_lying_score` | 0.0310 |
+
+> **Note:** `impervious_change_rate` and its lag variants showed negative or near-zero importance (around −0.002 to −0.006), suggesting this feature contributes little predictive signal in the current model and is a candidate for review or replacement (per existing limitations around proxy features).

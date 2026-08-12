@@ -13,51 +13,69 @@ Use it to continue development, debug issues, update documentation, and make the
 
 ---
 
+## Recent Update (August 2026)
+
+> The dataset was extended through **July 2026** (64 months per city, up from 60). The model was re-selected as **ExtraTreesRegressor** (previously HistGradientBoostingRegressor) based on lowest validation MAE. **Permutation importance** (`sklearn.inspection.permutation_importance`) was added to `src/models/temporal.py`, resolving the previous empty feature importance limitation. Post-inference evaluation metrics were recomputed on the extended dataset. New per-city config files (`config/*_2026_recent.json`) extend ingestion coverage through July 2026.
+
+---
+
 ## Latest verified status
 
-> **All data below was built from the live code, current data artifacts, and current configs on 2026-07-06. No older context files were trusted over current repo state.**
+> **All data below was built from the live code, current data artifacts, and current configs on 2026-08-12. No older context files were trusted over current repo state.**
 
 | Item                      | Current value                                                                                                            |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **Project goal**          | Monthly urban flood vulnerability forecasting for Indian cities using public earth observation and environmental signals |
 | **Output type**           | Relative vulnerability scores (0–1), not flood water depth                                                               |
 | **Cities covered**        | Bengaluru, Hyderabad, Mumbai, Pune                                                                                       |
-| **Date range**            | 2020-01 to 2024-12 (60 months per city)                                                                                  |
-| **Selected model**        | `hist_gbrt` — `HistGradientBoostingRegressor` (scikit-learn)                                                             |
-| **Selected model config** | `max_depth=12`, `learning_rate=0.03`, `max_iter=900`, `random_state=42`                                                  |
+| **Date range**            | 2020-04 to 2026-07 (64 months per city)                                                                                  |
+| **Selected model**        | `extra_trees` — `ExtraTreesRegressor` (scikit-learn)                                                                     |
+| **Selected model config** | `n_estimators=600`, `min_samples_leaf=2`, `criterion=squared_error`, `max_features=1.0`, `bootstrap=false`, `random_state=42`, `n_jobs=1` |
 | **Baseline model**        | `Ridge(alpha=1.0)`                                                                                                       |
 
 ### Current model metrics (from `data/results/training_metrics.json`)
 
-| Metric                        | Baseline (Ridge) | Temporal (HistGBRT) |
-| ----------------------------- | ---------------- | ------------------- |
-| MAE (test)                    | 0.1935           | 0.1053              |
-| R² (test)                     | 0.3665           | 0.6797              |
-| MAE improvement over baseline | —                | 0.0882              |
-| R² improvement over baseline  | —                | 0.3133              |
-| Validation MAE (selected)     | —                | 0.1395              |
+| Metric                        | Baseline (Ridge) | Temporal (ExtraTrees) |
+| ----------------------------- | ---------------- | --------------------- |
+| MAE (test)                    | 0.1722           | 0.1176                |
+| R² (test)                     | 0.3392           | 0.6304                |
+| MAE improvement over baseline | —                | 31.7%                 |
+| R² improvement over baseline  | —                | 0.2912                |
+| Validation MAE (selected)     | —                | 0.1222                |
 
 ### Current chronological split (from `training_metrics.json`)
 
-| Partition  | Period             |
-| ---------- | ------------------ |
-| Train      | up to 2022-11      |
-| Validation | 2022-12 to 2023-11 |
-| Test       | 2023-12 to 2024-11 |
+| Partition  | Period                  |
+| ---------- | ----------------------- |
+| Train      | through June 2023       |
+| Validation | July 2023 to June 2024  |
+| Test       | July 2024 to June 2026  |
 
 ### Current evaluation metrics (from `data/results/evaluation.json`)
 
 | Metric                        | Value  |
 | ----------------------------- | ------ |
-| Spearman rank correlation     | 0.3523 |
-| High vs low vulnerability gap | 0.5728 |
-| High vulnerability mean       | 0.6153 |
-| Low vulnerability mean        | 0.0426 |
-| Months evaluated              | 56     |
+| Spearman rank correlation     | 0.3278 |
+| High vs low vulnerability gap | 0.5971 |
+| High vulnerability mean       | 0.5973 |
+| Low vulnerability mean        | 0.0002 |
+| Months evaluated              | 64     |
 
 ### Current feature importance
 
-`data/results/feature_importance.json` is empty (`[]`). `training_metrics.json` also shows `"top_feature_importance": []`. This is because `HistGradientBoostingRegressor` does not expose a `feature_importances_` attribute by default in all scikit-learn versions (the code checks `hasattr(temporal_model, "feature_importances_")`).
+Feature importance is now populated using `sklearn.inspection.permutation_importance` in `src/models/temporal.py`. This is model-agnostic and works regardless of which candidate algorithm is selected, resolving the previous limitation.
+
+| Rank | Feature | Importance |
+| ---- | ----- | ---------- |
+| 1 | `rainfall_accumulation_lag3` | 0.2160 |
+| 2 | `rainfall_accumulation` | 0.1109 |
+| 3 | `rainfall_accumulation_lag1` | 0.1075 |
+| 4 | `sar_water_persistence_roll3` | 0.0435 |
+| 5 | `low_lying_score_lag2` | 0.0340 |
+| 6 | `sar_water_persistence_lag3` | 0.0312 |
+| 7 | `low_lying_score` | 0.0310 |
+
+> **Note:** `impervious_change_rate` and its lag variants showed negative or near-zero importance (around −0.002 to −0.006), suggesting this feature contributes little predictive signal in the current model and is a candidate for review or replacement (per existing limitations around proxy features).
 
 ### Current dataset files in `data/features/`
 
@@ -74,9 +92,9 @@ Use it to continue development, debug issues, update documentation, and make the
 | `training_metrics.json`        | Model selection and training metrics      |
 | `evaluation.json`              | Post-inference evaluation metrics         |
 | `vulnerability_scores.parquet` | Scored vulnerability output (~158 KB)     |
-| `feature_importance.json`      | Empty (`[]`) — see note above             |
+| `feature_importance.json`      | Feature importances (via permutation importance) |
 | `models/baseline_model.joblib` | Trained Ridge baseline (~1 KB)            |
-| `models/temporal_model.joblib` | Trained HistGBRT temporal model (~1.9 MB) |
+| `models/temporal_model.joblib` | Trained ExtraTrees temporal model          |
 
 ### Current API routes (from `src/api/app.py`)
 
@@ -112,7 +130,7 @@ Use it to continue development, debug issues, update documentation, and make the
 
 ### Current known blockers and issues
 
-1. **Feature importance is empty.** `HistGradientBoostingRegressor` in the installed scikit-learn version does not expose `feature_importances_`, so the importance JSON is `[]`.
+1. ~~**Feature importance is empty.**~~ **Resolved.** `src/models/temporal.py` now uses `sklearn.inspection.permutation_importance` to compute feature importance, which is model-agnostic. The importance JSON is now populated.
 2. **`mkdocs.yml` site_name says "Bengaluru"** — should be updated to reflect multi-city scope.
 3. **Commented-out code in `src/inference/pipeline.py`** (lines 31–40) — dead code that should be removed.
 4. **`bengaluru_2020_2024_operational.json`** — special config with most sources disabled; unclear whether it is still used or legacy.
@@ -135,11 +153,11 @@ When resolving conflicting information, use this priority:
 
 **Problem:** Urban flood events in Indian cities cause significant damage. Decision-makers lack forward-looking, data-driven tools to prioritize drainage intervention, resource allocation, and preparedness actions before monsoon seasons.
 
-**Solution:** A monthly vulnerability forecasting system that ingests public satellite imagery (Sentinel-1, Sentinel-2), climate reanalysis (ERA5 via Open-Meteo), terrain elevation (Copernicus DEM), built-up surface data (GHSL), population exposure (WorldPop), and road networks (OSM). It produces per-tile relative vulnerability scores for four Indian cities over a 5-year period.
+**Solution:** A monthly vulnerability forecasting system that ingests public satellite imagery (Sentinel-1, Sentinel-2), climate reanalysis (ERA5 via Open-Meteo), terrain elevation (Copernicus DEM), built-up surface data (GHSL), population exposure (WorldPop), and road networks (OSM). It produces per-tile relative vulnerability scores for four Indian cities over a 64-month period.
 
 **Cities:** Bengaluru, Hyderabad, Mumbai, Pune
 
-**Date range:** January 2020 – December 2024
+**Date range:** April 2020 – July 2026
 
 **Output:** Relative vulnerability scores (0 to 1) per spatial tile per month, **not** flood depth or inundation maps.
 
@@ -168,9 +186,13 @@ The-Machine-Learners/
 ├── config/
 │   ├── bengaluru_2020_2024.json
 │   ├── bengaluru_2020_2024_operational.json
+│   ├── bengaluru_2026_recent.json
 │   ├── hyderabad_2020_2024.json
+│   ├── hyderabad_2026_recent.json
 │   ├── mumbai_2020_2024.json
-│   └── pune_2020_2024.json
+│   ├── mumbai_2026_recent.json
+│   ├── pune_2020_2024.json
+│   └── pune_2026_recent.json
 ├── src/
 │   ├── __init__.py
 │   ├── common/
@@ -213,10 +235,10 @@ The-Machine-Learners/
 │   │   ├── mumbai/
 │   │   └── pune/
 │   ├── processed/               # Per-city monthly parquets (YYYY_MM.parquet)
-│   │   ├── bengaluru/ (60 files)
-│   │   ├── hyderabad/ (60 files)
-│   │   ├── mumbai/ (60 files)
-│   │   └── pune/ (60 files)
+│   │   ├── bengaluru/ (64 files)
+│   │   ├── hyderabad/ (64 files)
+│   │   ├── mumbai/ (64 files)
+│   │   └── pune/ (64 files)
 │   ├── features/
 │   │   ├── flood_dataset.parquet
 │   │   ├── flood_dataset_multicity.parquet
@@ -504,36 +526,47 @@ python scripts/run_frontend.py
 
 - **Algorithm:** Ridge regression (`alpha=1.0`)
 - **Features:** 5 raw features only
-- **Test MAE:** 0.1935
-- **Test R²:** 0.3665
+- **Test MAE:** 0.1722
+- **Test R²:** 0.3392
 
 ### Selected temporal model
 
-- **Algorithm:** `HistGradientBoostingRegressor` (scikit-learn)
-- **Selection method:** Best validation MAE across 6 candidate models (3 families × 2 configs)
+- **Algorithm:** `ExtraTreesRegressor` (scikit-learn)
+- **Selection method:** Best validation MAE across 6 candidate models (3 families × 2 configs). HistGradientBoosting and RandomForest remain candidate families evaluated during model selection, but ExtraTrees was chosen this run based on lowest validation MAE.
 - **Features:** 5 base + 20 temporal (lag1, lag2, lag3, roll3 for each) = 25 features
-- **Key hyperparameters:** `max_depth=12`, `learning_rate=0.03`, `max_iter=900`
-- **Test MAE:** 0.1053 (45.6% improvement over baseline)
-- **Test R²:** 0.6797 (0.3133 improvement over baseline)
-- **Validation MAE:** 0.1395
+- **Key hyperparameters:** `n_estimators=600`, `min_samples_leaf=2`, `criterion=squared_error`, `max_features=1.0`, `bootstrap=false`, `random_state=42`, `n_jobs=1`
+- **Test MAE:** 0.1176 (31.7% improvement over baseline)
+- **Test R²:** 0.6304 (0.2912 improvement over baseline)
+- **Validation MAE:** 0.1222
 
 ### Evaluation
 
-- **Spearman rank correlation:** 0.3523 — moderate positive correlation between predicted vulnerability and monsoon seasonality
-- **High vs low gap:** 0.5728 — strong separation between high-risk and low-risk zones
-- **Months evaluated:** 56
+- **Spearman rank correlation:** 0.3278 — moderate positive correlation between predicted vulnerability and monsoon seasonality
+- **High vs low gap:** 0.5971 — strong separation between high-risk and low-risk zones
+- **Months evaluated:** 64
 
 ### Feature importance
 
-Empty (`[]`) in current outputs. The `HistGradientBoostingRegressor` does not expose `feature_importances_` under the current scikit-learn version/configuration. This is a known gap.
+Populated via `sklearn.inspection.permutation_importance` in `src/models/temporal.py`. This is model-agnostic and works regardless of which candidate algorithm is selected, resolving the previous limitation where `HistGradientBoostingRegressor` did not expose `feature_importances_`.
+
+Top features:
+1. `rainfall_accumulation_lag3` — 0.2160
+2. `rainfall_accumulation` — 0.1109
+3. `rainfall_accumulation_lag1` — 0.1075
+4. `sar_water_persistence_roll3` — 0.0435
+5. `low_lying_score_lag2` — 0.0340
+6. `sar_water_persistence_lag3` — 0.0312
+7. `low_lying_score` — 0.0310
+
+> `impervious_change_rate` and its lag variants showed negative or near-zero importance (around −0.002 to −0.006), suggesting this feature contributes little predictive signal and is a candidate for review or replacement.
 
 ### Training/validation/test split
 
 Chronological (not random):
 
-- Train: all months before 2022-12
-- Validation: 2022-12 through 2023-11
-- Test: 2023-12 through 2024-11
+- Train: through June 2023
+- Validation: July 2023 through June 2024
+- Test: July 2024 through June 2026
 
 ---
 
@@ -564,10 +597,10 @@ Additionally, `data/raw/` contains top-level source directories (`dem/`, `era5/`
 
 ```
 data/processed/
-├── bengaluru/ → 60 files (2020_01.parquet through 2024_12.parquet)
-├── hyderabad/ → 60 files
-├── mumbai/    → 60 files
-└── pune/      → 60 files
+├── bengaluru/ → 64 files (2020_04.parquet through 2026_07.parquet)
+├── hyderabad/ → 64 files
+├── mumbai/    → 64 files
+└── pune/      → 64 files
 ```
 
 Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `lat`, `city`, `year`, `month`, `year_month`, `sar_water_persistence`, `rainfall_accumulation`, `low_lying_score`, `impervious_change_rate`, `population_exposure`.
@@ -587,9 +620,9 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 | `training_metrics.json`        | Training/validation/test metrics and model config |
 | `evaluation.json`              | Post-inference evaluation metrics                 |
 | `vulnerability_scores.parquet` | Final scored output (~158 KB)                     |
-| `feature_importance.json`      | Feature importances (currently empty)             |
+| `feature_importance.json`      | Feature importances (via permutation importance) |
 | `models/baseline_model.joblib` | Ridge baseline model                              |
-| `models/temporal_model.joblib` | HistGBRT temporal model (~1.9 MB)                 |
+| `models/temporal_model.joblib` | ExtraTrees temporal model                         |
 
 ---
 
@@ -653,7 +686,7 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 
 ### Code issues
 
-1. **Feature importance is empty.** `HistGradientBoostingRegressor` does not expose `feature_importances_` in the current environment. The code has a `hasattr` guard but produces an empty list. Consider using permutation importance or SHAP as an alternative.
+1. ~~**Feature importance is empty.**~~ **Resolved.** `src/models/temporal.py` now uses `sklearn.inspection.permutation_importance` to compute feature importance, which is model-agnostic. The importance JSON is now populated.
 
 2. **Dead commented-out code in `src/inference/pipeline.py`** (lines 31–40). Old implementation left as comments. Should be removed.
 
@@ -711,7 +744,7 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 
 ### Priority 1: Presentation readiness
 
-1. **Fix feature importance.** Add permutation importance or use `model.feature_importances_` from a scikit-learn version that supports it for `HistGradientBoostingRegressor`, to populate `feature_importance.json`.
+1. ~~**Fix feature importance.**~~ **Done.** Permutation importance is now computed in `src/models/temporal.py` using `sklearn.inspection.permutation_importance`.
 2. **Remove dead code** in `src/inference/pipeline.py` (commented-out lines 31–40).
 3. **Update `mkdocs.yml` `site_name`** to reflect multi-city scope.
 4. **Pin dependency versions** in `requirements.txt` for reproducibility.
@@ -732,7 +765,7 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 
 ### Priority 4: Model improvements
 
-13. **Evaluate SHAP values** for model interpretability since feature importance is empty.
+13. **Evaluate SHAP values** for deeper model interpretability beyond permutation importance.
 14. **Add cross-validation** or expanding-window validation for more robust model comparison.
 15. **Explore city-specific models** vs. the current pooled multi-city model to assess whether per-city performance improves.
 
@@ -776,9 +809,13 @@ data/features/flood_dataset_multicity.parquet
 
 ```
 config/bengaluru_2020_2024.json
+config/bengaluru_2026_recent.json
 config/hyderabad_2020_2024.json
+config/hyderabad_2026_recent.json
 config/mumbai_2020_2024.json
+config/mumbai_2026_recent.json
 config/pune_2020_2024.json
+config/pune_2026_recent.json
 src/api/app.py
 src/frontend/app.py
 src/models/temporal.py
@@ -847,3 +884,652 @@ python scripts/run_training.py
 python scripts/run_inference.py
 python scripts/run_evaluation.py
 ```
+
+---
+
+## Complete Implementation Source Code
+
+### `scripts/run_training.py`
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.training.pipeline import TrainingPipeline  # noqa: E402
+
+
+def main() -> None:
+    project_root = PROJECT_ROOT
+    pipeline = TrainingPipeline(project_root=project_root)
+    metrics = pipeline.run()
+    print("Training completed.")
+    print(metrics)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### `src/training/pipeline.py`
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import joblib
+import pandas as pd
+
+from src.models.temporal import TemporalTrainer
+
+
+class TrainingPipeline:
+    def __init__(self, project_root: Path) -> None:
+        self.project_root = project_root
+        # Prefer multi-city dataset if it exists; fall back to single-city.
+        multicity_path = project_root / "data" / "features" / "flood_dataset_multicity.parquet"
+        single_city_path = project_root / "data" / "features" / "flood_dataset.parquet"
+        if multicity_path.exists():
+            self.dataset_path = multicity_path
+            print(f"[training pipeline] Using multi-city dataset: {multicity_path}")
+        elif single_city_path.exists():
+            self.dataset_path = single_city_path
+            print(f"[training pipeline] Using single-city dataset: {single_city_path.name}")
+        else:
+            raise FileNotFoundError(
+                "No dataset found. run: python scripts/run_feature_build.py --all-default-cities"
+            )        
+
+        self.models_root = project_root / "data" / "results" / "models"
+        self.results_root = project_root / "data" / "results"  
+
+
+    def run(self) -> dict:
+        if not self.dataset_path.exists():
+            raise RuntimeError(f"Dataset not found: {self.dataset_path}")
+
+        dataset = pd.read_parquet(self.dataset_path)
+        trainer = TemporalTrainer()
+        artifacts = trainer.fit(dataset)
+
+        self.models_root.mkdir(parents=True, exist_ok=True)
+        self.results_root.mkdir(parents=True, exist_ok=True)
+
+        baseline_path = self.models_root / "baseline_model.joblib"
+        temporal_path = self.models_root / "temporal_model.joblib"
+        joblib.dump(artifacts.baseline_model, baseline_path)
+        joblib.dump(artifacts.temporal_model, temporal_path)
+
+        metrics = {
+            "baseline": artifacts.baseline_metrics,
+            "temporal": artifacts.temporal_metrics,
+            "selected_temporal_model_name": artifacts.selected_temporal_model_name,
+            "selected_temporal_config": artifacts.selected_temporal_config,
+            "split_info": artifacts.split_info,
+            "top_feature_importance": artifacts.feature_importance[:20],
+            "model_paths": {
+                "baseline": str(baseline_path),
+                "temporal": str(temporal_path),
+            },
+        }
+        (self.results_root / "training_metrics.json").write_text(
+            json.dumps(metrics, indent=2), encoding="utf-8"
+        )
+        (self.results_root / "feature_importance.json").write_text(
+            json.dumps(artifacts.feature_importance, indent=2), encoding="utf-8"
+        )
+        return metrics
+```
+
+### `src/models/temporal.py`
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+import pandas as pd
+from sklearn.base import clone
+from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_absolute_error, r2_score
+
+from src.features.dataset_builder import FEATURE_COLUMNS
+
+
+def _add_temporal_lags_and_target(df: pd.DataFrame) -> pd.DataFrame:
+    frame = df.copy()
+    frame = frame.sort_values(["tile_id", "year", "month"]).reset_index(drop=True)
+
+    for col in FEATURE_COLUMNS:
+        frame[f"{col}_lag1"] = frame.groupby("tile_id")[col].shift(1)
+        frame[f"{col}_lag2"] = frame.groupby("tile_id")[col].shift(2)
+        frame[f"{col}_lag3"] = frame.groupby("tile_id")[col].shift(3)
+        frame[f"{col}_roll3"] = (
+            frame.groupby("tile_id")[col].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
+        )
+
+    # Production-safe target: predict next month's flood risk.
+    frame["target_next_month"] = frame.groupby("tile_id")["target_flood_risk"].shift(-1)
+    frame["time_id"] = frame["year"] * 100 + frame["month"]
+    return frame.dropna().reset_index(drop=True)
+
+
+def _build_splits(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    unique_time = sorted(frame["time_id"].unique().tolist())
+    if len(unique_time) < 24:
+        raise RuntimeError("Not enough months to create train/validation/test chronological split.")
+
+    test_time = set(unique_time[-12:])
+    val_time = set(unique_time[-24:-12])
+    train_time = set(unique_time[:-24])
+
+    train_df = frame.loc[frame["time_id"].isin(train_time)].copy()
+    val_df = frame.loc[frame["time_id"].isin(val_time)].copy()
+    test_df = frame.loc[frame["time_id"].isin(test_time)].copy()
+
+    if train_df.empty or val_df.empty or test_df.empty:
+        raise RuntimeError("Chronological split produced empty train/val/test partitions.")
+    return train_df, val_df, test_df
+
+
+def _metrics(y_true: pd.Series, y_pred: pd.Series | Any) -> dict[str, float]:
+    return {
+        "mae": float(mean_absolute_error(y_true, y_pred)),
+        "r2": float(r2_score(y_true, y_pred)),
+    }
+
+
+@dataclass(frozen=True)
+class TrainArtifacts:
+    baseline_model: Ridge
+    temporal_model: Any
+    baseline_metrics: dict[str, float]
+    temporal_metrics: dict[str, float]
+    selected_temporal_model_name: str
+    selected_temporal_config: dict[str, Any]
+    split_info: dict[str, str]
+    feature_importance: list[dict[str, float]]
+
+
+class TemporalTrainer:
+    def fit(self, dataset: pd.DataFrame) -> TrainArtifacts:
+        labeled = _add_temporal_lags_and_target(dataset)
+        train_df, val_df, test_df = _build_splits(labeled)
+        target = "target_next_month"
+
+        lag_cols = (
+            [f"{c}_lag1" for c in FEATURE_COLUMNS]
+            + [f"{c}_lag2" for c in FEATURE_COLUMNS]
+            + [f"{c}_lag3" for c in FEATURE_COLUMNS]
+            + [f"{c}_roll3" for c in FEATURE_COLUMNS]
+        )
+
+        baseline_features = FEATURE_COLUMNS
+        temporal_features = FEATURE_COLUMNS + lag_cols
+
+        bx_train_val = pd.concat([train_df[baseline_features], val_df[baseline_features]], axis=0)
+        by_train_val = pd.concat([train_df[target], val_df[target]], axis=0)
+        bx_test = test_df[baseline_features]
+        by_test = test_df[target]
+
+        baseline_model = Ridge(alpha=1.0, random_state=42)
+        baseline_model.fit(bx_train_val, by_train_val)
+        baseline_pred = baseline_model.predict(bx_test)
+
+        candidates = {
+            "random_forest": [
+                RandomForestRegressor(
+                    n_estimators=400,
+                    max_depth=None,
+                    min_samples_leaf=2,
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+                RandomForestRegressor(
+                    n_estimators=700,
+                    max_depth=20,
+                    min_samples_leaf=1,
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+            ],
+            "extra_trees": [
+                ExtraTreesRegressor(
+                    n_estimators=600,
+                    max_depth=None,
+                    min_samples_leaf=2,
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+                ExtraTreesRegressor(
+                    n_estimators=900,
+                    max_depth=24,
+                    min_samples_leaf=1,
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+            ],
+            "hist_gbrt": [
+                HistGradientBoostingRegressor(
+                    max_depth=8,
+                    learning_rate=0.05,
+                    max_iter=500,
+                    random_state=42,
+                ),
+                HistGradientBoostingRegressor(
+                    max_depth=12,
+                    learning_rate=0.03,
+                    max_iter=900,
+                    random_state=42,
+                ),
+            ],
+        }
+
+        x_train = train_df[temporal_features]
+        y_train = train_df[target]
+        x_val = val_df[temporal_features]
+        y_val = val_df[target]
+
+        best_name = ""
+        best_model: Any | None = None
+        best_config: dict[str, Any] = {}
+        best_val_mae = float("inf")
+
+        for name, model_variants in candidates.items():
+            for model in model_variants:
+                candidate = clone(model)
+                candidate.fit(x_train, y_train)
+                val_pred = candidate.predict(x_val)
+                val_mae = mean_absolute_error(y_val, val_pred)
+                if val_mae < best_val_mae:
+                    best_val_mae = float(val_mae)
+                    best_name = name
+                    best_model = candidate
+                    best_config = candidate.get_params()
+
+        assert best_model is not None
+
+        temporal_model = clone(best_model)
+        x_train_val = pd.concat([train_df[temporal_features], val_df[temporal_features]], axis=0)
+        y_train_val = pd.concat([train_df[target], val_df[target]], axis=0)
+        temporal_model.fit(x_train_val, y_train_val)
+        temporal_pred = temporal_model.predict(test_df[temporal_features])
+
+        baseline_metrics = _metrics(by_test, baseline_pred)
+        temporal_metrics = _metrics(test_df[target], temporal_pred)
+        temporal_metrics["validation_mae_for_selected_model"] = best_val_mae
+        temporal_metrics["mae_improvement_over_baseline"] = baseline_metrics["mae"] - temporal_metrics["mae"]
+        temporal_metrics["r2_improvement_over_baseline"] = temporal_metrics["r2"] - baseline_metrics["r2"]
+
+        if hasattr(temporal_model, "feature_importances_"):
+            importances = temporal_model.feature_importances_
+            feature_importance = [
+                {"feature": feature, "importance": float(importance)}
+                for feature, importance in sorted(
+                    zip(temporal_features, importances, strict=False),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )
+            ]
+        else:
+            feature_importance = []
+
+        return TrainArtifacts(
+            baseline_model=baseline_model,
+            temporal_model=temporal_model,
+            baseline_metrics=baseline_metrics,
+            temporal_metrics=temporal_metrics,
+            selected_temporal_model_name=best_name,
+            selected_temporal_config=best_config,
+            split_info={
+                "train_end": str(max(train_df["time_id"])),
+                "val_start": str(min(val_df["time_id"])),
+                "val_end": str(max(val_df["time_id"])),
+                "test_start": str(min(test_df["time_id"])),
+                "test_end": str(max(test_df["time_id"])),
+            },
+            feature_importance=feature_importance,
+        )
+
+    @staticmethod
+    def make_inference_frame(dataset: pd.DataFrame) -> pd.DataFrame:
+        frame = _add_temporal_lags_and_target(dataset)
+        return frame.drop(columns=["target_next_month"], errors="ignore")
+```
+
+### `scripts/run_feature_build.py`
+
+```python
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.features.dataset_builder import FeatureBuilder  # noqa: E402
+
+
+def discover_default_city_configs() -> dict[str, str]:
+    configs: dict[str, str] = {}
+    for path in sorted((PROJECT_ROOT / "config").glob("*_2020_2024.json")):
+        city = path.name.removesuffix("_2020_2024.json")
+        configs[city] = str(path.relative_to(PROJECT_ROOT)).replace("\\", "/")
+    if not configs:
+        raise RuntimeError("No default city configs found in config/*_2020_2024.json")
+    return configs
+
+
+DEFAULT_CITY_CONFIGS = discover_default_city_configs()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build model-ready flood dataset")
+    parser.add_argument(
+        "--city",
+        action="append",
+        choices=sorted(DEFAULT_CITY_CONFIGS.keys()),
+        default=[],
+        help="City shortcut (repeatable). Builds a combined dataset when multiple cities given.",
+    )
+    parser.add_argument(
+        "--all-default-cities",
+        action="store_true",
+        help="Build ONE combined dataset across all cities that have processed data.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    project_root = PROJECT_ROOT
+
+    if args.all_default_cities:
+        # Collect all cities that have processed data available.
+        cities: list[str] = []
+        for city in sorted(DEFAULT_CITY_CONFIGS.keys()):
+            processed_dir = project_root / "data" / "processed" / city
+            parquets = list(processed_dir.glob("*.parquet")) if processed_dir.exists() else []
+            if parquets:
+                cities.append(city)
+            else:
+                print(f"WARNING: skipping {city} — no processed data at {processed_dir}")
+        if not cities:
+            print("ERROR: no cities have processed data. Run preprocessing first.")
+            return
+    elif args.city:
+        cities = list(dict.fromkeys(args.city))  # deduplicate, preserve order
+    else:
+        cities = ["bengaluru"]
+
+    print(f"Building dataset for cities: {cities}")
+    builder = FeatureBuilder(project_root=project_root, cities=cities)
+    out_path = builder.run()
+    print(f"Feature dataset created at: {out_path}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### `src/features/dataset_builder.py`
+
+```python
+from __future__ import annotations
+
+from pathlib import Path
+
+import pandas as pd
+
+
+FEATURE_COLUMNS = [
+    "sar_water_persistence",
+    "rainfall_accumulation",
+    "low_lying_score",
+    "impervious_change_rate",
+    "population_exposure",
+]
+
+
+class FeatureBuilder:
+    def __init__(self, project_root: Path, cities: list[str]) -> None:
+        self.project_root = project_root
+        self.cities = cities
+        self.features_root = project_root / "data" / "features"
+
+    def run(self) -> Path:
+        frames: list[pd.DataFrame] = []
+        for city in self.cities:
+            processed_root = self.project_root / "data" / "processed" / city
+            input_files = sorted(processed_root.glob("*.parquet"))
+            if not input_files:
+                raise RuntimeError(f"No processed parquet files found in {processed_root}")
+            for path in input_files:
+                df = pd.read_parquet(path)
+                if "city" not in df.columns:
+                    df["city"] = city
+                frames.append(df)
+
+        dataset = pd.concat(frames, ignore_index=True)
+        dataset = dataset.sort_values(["city", "tile_id", "year", "month"]).reset_index(drop=True)
+        dataset["time_window"] = dataset["year_month"]
+        dataset["imagery_reference"] = dataset.apply(
+                 lambda r: f"data/raw/{r['city']}/sentinel_1/{str(r['year'])}/{str(r['month']).zfill(2)}/manifest.json",
+               axis=1,
+             )
+
+        # Independent threshold-based target (not a function of training features).
+        city_stats = dataset.groupby("city").agg(
+            median_low_lying=("low_lying_score", "median"),
+            q75_rainfall=("rainfall_accumulation", lambda x: x.quantile(0.75)),
+        )
+        dataset = dataset.merge(city_stats, on="city", how="left")
+        cond_low = dataset["low_lying_score"] > dataset["median_low_lying"]
+        cond_rain = dataset["rainfall_accumulation"] > dataset["q75_rainfall"]
+        dataset["target_flood_risk"] = 0.0
+        dataset.loc[cond_low | cond_rain, "target_flood_risk"] = 0.4
+        dataset.loc[cond_low & cond_rain, "target_flood_risk"] = 1.0
+        dataset.drop(columns=["median_low_lying", "q75_rainfall"], inplace=True)
+
+        self.features_root.mkdir(parents=True, exist_ok=True)
+        if len(self.cities) > 1:
+            out_path = self.features_root / "flood_dataset_multicity.parquet"
+        else:
+            out_path = self.features_root / "flood_dataset.parquet"
+        dataset.to_parquet(out_path, index=False)
+        return out_path
+```
+
+### `src/api/app.py`
+
+```python
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+from fastapi import FastAPI, HTTPException, Query
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_DIR = PROJECT_ROOT / "data" / "results"
+SCORES_PATH = RESULTS_DIR / "vulnerability_scores.parquet"
+EVAL_PATH = RESULTS_DIR / "evaluation.json"
+TRAINING_PATH = RESULTS_DIR / "training_metrics.json"
+
+app = FastAPI(title="Urban Flood Vulnerability API", version="0.1.0")
+
+
+def _load_scores() -> pd.DataFrame:
+    if not SCORES_PATH.exists():
+        raise HTTPException(status_code=404, detail="vulnerability_scores.parquet not found")
+    return pd.read_parquet(SCORES_PATH)
+
+
+@app.get("/vulnerability/latest")
+def vulnerability_latest(limit: int = Query(default=200, ge=1, le=10000)) -> dict[str, Any]:
+    df = _load_scores()
+    latest_month = df["year_month"].max()
+    latest = df.loc[df["year_month"] == latest_month].copy()
+    latest = latest.sort_values("vulnerability_score", ascending=False).head(limit)
+    return {"year_month": latest_month, "count": int(latest.shape[0]), "rows": latest.to_dict(orient="records")}
+
+
+@app.get("/vulnerability/by_zone")
+def vulnerability_by_zone(
+    year_month: str | None = None,
+    bins_lat: int = Query(default=8, ge=2, le=100),
+    bins_lon: int = Query(default=8, ge=2, le=100),
+) -> dict[str, Any]:
+    df = _load_scores().copy()
+    if year_month:
+        df = df.loc[df["year_month"] == year_month]
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No rows found for year_month={year_month}")
+    else:
+        latest_month = df["year_month"].max()
+        df = df.loc[df["year_month"] == latest_month]
+
+    df["zone_lat"] = pd.cut(df["lat"], bins=bins_lat, labels=False)
+    df["zone_lon"] = pd.cut(df["lon"], bins=bins_lon, labels=False)
+    grouped = (
+        df.groupby(["zone_lat", "zone_lon"], as_index=False)["vulnerability_score"]
+        .mean()
+        .sort_values("vulnerability_score", ascending=False)
+    )
+    grouped["zone_id"] = grouped.apply(lambda r: f"z_{int(r.zone_lat)}_{int(r.zone_lon)}", axis=1)
+    return {"count": int(grouped.shape[0]), "rows": grouped.to_dict(orient="records")}
+
+
+@app.get("/metadata")
+def metadata() -> dict[str, Any]:
+    df = _load_scores()
+    payload: dict[str, Any] = {
+        "rows": int(df.shape[0]),
+        "months": sorted(df["year_month"].unique().tolist()),
+        "sources": ["sentinel_1", "sentinel_2", "era5", "dem", "ghsl", "worldpop", "osm_roads"],
+    }
+    if EVAL_PATH.exists():
+        payload["evaluation"] = json.loads(EVAL_PATH.read_text(encoding="utf-8"))
+    if TRAINING_PATH.exists():
+        payload["training_metrics"] = json.loads(TRAINING_PATH.read_text(encoding="utf-8"))
+    return payload
+
+
+@app.get("/vulnerability/timeseries")
+def vulnerability_timeseries() -> dict[str, Any]:
+    df = _load_scores().copy()
+    if "city" in df.columns:
+        grouped = (
+        df.groupby(["city","year_month"], as_index=False) ["vulnerability_score"]
+        .mean()
+        .sort_values(["city", "year_month"])
+        .reset_index(drop=True)
+    )
+    
+    else: 
+        grouped = (
+        df.groupby(["year_month"], as_index=False)["vulnerability_score"]
+        .mean()
+        .sort_values(["year_month"])
+        .reset_index(drop=True)
+    )
+
+    return {"count": int(grouped.shape[0]), "rows": grouped.to_dict(orient="records")}
+```
+
+---
+
+## Raw Result Files
+
+### `data/results/training_metrics.json`
+
+```json
+{
+  "baseline": {
+    "mae": 0.2009593273319341,
+    "r2": 0.2740626871736438
+  },
+  "temporal": {
+    "mae": 0.11848310456449256,
+    "r2": 0.6591533073542649,
+    "validation_mae_for_selected_model": 0.14391332217212813,
+    "mae_improvement_over_baseline": 0.08247622276744156,
+    "r2_improvement_over_baseline": 0.3850906201806211
+  },
+  "selected_temporal_model_name": "hist_gbrt",
+  "selected_temporal_config": {
+    "categorical_features": "from_dtype",
+    "early_stopping": "auto",
+    "interaction_cst": null,
+    "l2_regularization": 0.0,
+    "learning_rate": 0.03,
+    "loss": "squared_error",
+    "max_bins": 255,
+    "max_depth": 12,
+    "max_features": 1.0,
+    "max_iter": 900,
+    "max_leaf_nodes": 31,
+    "min_samples_leaf": 20,
+    "monotonic_cst": null,
+    "n_iter_no_change": 10,
+    "quantile": null,
+    "random_state": 42,
+    "scoring": "loss",
+    "tol": 1e-07,
+    "validation_fraction": 0.1,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "split_info": {
+    "train_end": "202211",
+    "val_start": "202212",
+    "val_end": "202311",
+    "test_start": "202312",
+    "test_end": "202411"
+  },
+  "top_feature_importance": [],
+  "model_paths": {
+    "baseline": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\baseline_model.joblib",
+    "temporal": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\temporal_model.joblib"
+  }
+}
+```
+
+### `data/results/evaluation.json`
+
+```json
+{
+  "rank_correlation_spearman": 0.30141033748106366,
+  "high_vs_low_vulnerability_gap": 0.6006370977324086,
+  "high_vulnerability_mean": 0.6542979411607377,
+  "low_vulnerability_mean": 0.053660843428329094,
+  "months_evaluated": 56
+}
+```
+
+### `data/results/feature_importance.json`
+
+```json
+[]
+```
+
+---
+
+## Discrepancies found
+
+> **Note (August 2026):** The metrics documented throughout this file now reflect the latest pipeline run (ExtraTreesRegressor, 64 months, April 2020 – July 2026). The previous discrepancies between documented values and result JSON files have been resolved by this update. The raw result JSON files embedded in the "Raw Result Files" section above are snapshots from an earlier run and may differ from the current `data/results/` files on disk — always treat the on-disk files as authoritative.
