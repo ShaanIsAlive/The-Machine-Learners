@@ -1,0 +1,21 @@
+{
+  "city": "mumbai",
+  "country": "india",
+  "date_range": {
+    "start": "2026-01-01",
+    "end": "2026-07-31"
+  },
+  "roi": {
+    "name": "Mumbai Urban + Peri-Urban",
+    "bbox_wgs84": [72.77, 18.87, 73.05, 19.33]
+  },
+  "sources": {
+    "sentinel_1": true,
+    "sentinel_2": true,
+    "era5": true,
+    "dem": true,
+    "ghsl": true,
+    "worldpop": true,
+    "osm_roads": true
+  }
+}

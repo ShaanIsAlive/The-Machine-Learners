@@ -1,0 +1,21 @@
+{
+  "city": "pune",
+  "country": "india",
+  "date_range": {
+    "start": "2026-01-01",
+    "end": "2026-07-31"
+  },
+  "roi": {
+    "name": "Pune Urban + Peri-Urban",
+    "bbox_wgs84": [73.65, 18.35, 74.15, 18.80]
+  },
+  "sources": {
+    "sentinel_1": true,
+    "sentinel_2": true,
+    "era5": true,
+    "dem": true,
+    "ghsl": true,
+    "worldpop": true,
+    "osm_roads": true
+  }
+}

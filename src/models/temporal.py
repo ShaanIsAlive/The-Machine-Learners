@@ -6,6 +6,7 @@ from typing import Any
 import pandas as pd
 from sklearn.base import clone
 from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.inspection import permutation_importance
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 
@@ -28,6 +29,39 @@ def _add_temporal_lags_and_target(df: pd.DataFrame) -> pd.DataFrame:
     frame["target_next_month"] = frame.groupby("tile_id")["target_flood_risk"].shift(-1)
     frame["time_id"] = frame["year"] * 100 + frame["month"]
     return frame.dropna().reset_index(drop=True)
+
+
+def _add_temporal_lags_only(df: pd.DataFrame) -> pd.DataFrame:
+    """Same lag/rolling feature construction as training, but without requiring
+    target_next_month to exist. Used for inference, where the most recent
+    month has no "next month" label yet — that's exactly the row we need to
+    keep, not drop.
+
+    Deliberately duplicated (rather than reusing _add_temporal_lags_and_target)
+    so the training path above is completely untouched by this fix — training
+    metrics stay bit-for-bit reproducible.
+    """
+    frame = df.copy()
+    frame = frame.sort_values(["tile_id", "year", "month"]).reset_index(drop=True)
+
+    for col in FEATURE_COLUMNS:
+        frame[f"{col}_lag1"] = frame.groupby("tile_id")[col].shift(1)
+        frame[f"{col}_lag2"] = frame.groupby("tile_id")[col].shift(2)
+        frame[f"{col}_lag3"] = frame.groupby("tile_id")[col].shift(3)
+        frame[f"{col}_roll3"] = (
+            frame.groupby("tile_id")[col].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
+        )
+
+    frame["time_id"] = frame["year"] * 100 + frame["month"]
+
+    # Only drop rows missing lag/rolling history (the first ~3 months per
+    # tile genuinely can't have this yet — that's expected and unavoidable).
+    # Do NOT require target_next_month: that's the whole point of this fix.
+    lag_roll_cols = [
+        f"{col}_{suffix}" for col in FEATURE_COLUMNS for suffix in ("lag1", "lag2", "lag3", "roll3")
+    ]
+    frame = frame.dropna(subset=lag_roll_cols).reset_index(drop=True)
+    return frame
 
 
 def _build_splits(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -99,14 +133,14 @@ class TemporalTrainer:
                     max_depth=None,
                     min_samples_leaf=2,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
                 RandomForestRegressor(
                     n_estimators=700,
                     max_depth=20,
                     min_samples_leaf=1,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
             ],
             "extra_trees": [
@@ -115,14 +149,14 @@ class TemporalTrainer:
                     max_depth=None,
                     min_samples_leaf=2,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
                 ExtraTreesRegressor(
                     n_estimators=900,
                     max_depth=24,
                     min_samples_leaf=1,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
             ],
             "hist_gbrt": [
@@ -177,18 +211,26 @@ class TemporalTrainer:
         temporal_metrics["mae_improvement_over_baseline"] = baseline_metrics["mae"] - temporal_metrics["mae"]
         temporal_metrics["r2_improvement_over_baseline"] = temporal_metrics["r2"] - baseline_metrics["r2"]
 
-        if hasattr(temporal_model, "feature_importances_"):
-            importances = temporal_model.feature_importances_
-            feature_importance = [
-                {"feature": feature, "importance": float(importance)}
-                for feature, importance in sorted(
-                    zip(temporal_features, importances, strict=False),
-                    key=lambda x: x[1],
-                    reverse=True,
-                )
-            ]
-        else:
-            feature_importance = []
+        # Feature importance via permutation_importance: HistGradientBoostingRegressor
+        # does not expose feature_importances_ natively (a property of histogram-based
+        # boosting, not a version issue), so this works consistently regardless of
+        # which candidate model is selected.
+        perm_result = permutation_importance(
+            temporal_model,
+            test_df[temporal_features],
+            test_df[target],
+            n_repeats=10,
+            random_state=42,
+            n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
+        )
+        feature_importance = [
+            {"feature": feature, "importance": float(importance)}
+            for feature, importance in sorted(
+                zip(temporal_features, perm_result.importances_mean, strict=False),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+        ]
 
         return TrainArtifacts(
             baseline_model=baseline_model,
@@ -209,5 +251,4 @@ class TemporalTrainer:
 
     @staticmethod
     def make_inference_frame(dataset: pd.DataFrame) -> pd.DataFrame:
-        frame = _add_temporal_lags_and_target(dataset)
-        return frame.drop(columns=["target_next_month"], errors="ignore")
+        return _add_temporal_lags_only(dataset)

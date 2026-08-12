@@ -1,7 +1,7 @@
 {
-  "rank_correlation_spearman": 0.30141033748106366,
-  "high_vs_low_vulnerability_gap": 0.6006370977324086,
-  "high_vulnerability_mean": 0.6542979411607377,
-  "low_vulnerability_mean": 0.053660843428329094,
-  "months_evaluated": 56
+  "rank_correlation_spearman": 0.32775132056824735,
+  "high_vs_low_vulnerability_gap": 0.5970682636755168,
+  "high_vulnerability_mean": 0.5972942274622889,
+  "low_vulnerability_mean": 0.00022596378677209862,
+  "months_evaluated": 64
 }

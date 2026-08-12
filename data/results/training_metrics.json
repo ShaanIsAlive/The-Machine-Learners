@@ -1,47 +1,125 @@
 {
   "baseline": {
-    "mae": 0.2009593273319341,
-    "r2": 0.2740626871736438
+    "mae": 0.17224335521414688,
+    "r2": 0.33921636427873514
   },
   "temporal": {
-    "mae": 0.11848310456449256,
-    "r2": 0.6591533073542649,
-    "validation_mae_for_selected_model": 0.14391332217212813,
-    "mae_improvement_over_baseline": 0.08247622276744156,
-    "r2_improvement_over_baseline": 0.3850906201806211
+    "mae": 0.11764502676504622,
+    "r2": 0.6304275715209107,
+    "validation_mae_for_selected_model": 0.1222131781684029,
+    "mae_improvement_over_baseline": 0.05459832844910066,
+    "r2_improvement_over_baseline": 0.29121120724217553
   },
-  "selected_temporal_model_name": "hist_gbrt",
+  "selected_temporal_model_name": "extra_trees",
   "selected_temporal_config": {
-    "categorical_features": "from_dtype",
-    "early_stopping": "auto",
-    "interaction_cst": null,
-    "l2_regularization": 0.0,
-    "learning_rate": 0.03,
-    "loss": "squared_error",
-    "max_bins": 255,
-    "max_depth": 12,
+    "bootstrap": false,
+    "ccp_alpha": 0.0,
+    "criterion": "squared_error",
+    "max_depth": null,
     "max_features": 1.0,
-    "max_iter": 900,
-    "max_leaf_nodes": 31,
-    "min_samples_leaf": 20,
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 2,
+    "min_samples_split": 2,
+    "min_weight_fraction_leaf": 0.0,
     "monotonic_cst": null,
-    "n_iter_no_change": 10,
-    "quantile": null,
+    "n_estimators": 600,
+    "n_jobs": 1,
+    "oob_score": false,
     "random_state": 42,
-    "scoring": "loss",
-    "tol": 1e-07,
-    "validation_fraction": 0.1,
     "verbose": 0,
     "warm_start": false
   },
   "split_info": {
-    "train_end": "202211",
-    "val_start": "202212",
-    "val_end": "202311",
-    "test_start": "202312",
-    "test_end": "202411"
+    "train_end": "202306",
+    "val_start": "202307",
+    "val_end": "202406",
+    "test_start": "202407",
+    "test_end": "202606"
   },
-  "top_feature_importance": [],
+  "top_feature_importance": [
+    {
+      "feature": "rainfall_accumulation_lag3",
+      "importance": 0.2159992889196737
+    },
+    {
+      "feature": "rainfall_accumulation",
+      "importance": 0.11089234148794898
+    },
+    {
+      "feature": "rainfall_accumulation_lag1",
+      "importance": 0.10746863019365474
+    },
+    {
+      "feature": "sar_water_persistence_roll3",
+      "importance": 0.04350610036937639
+    },
+    {
+      "feature": "low_lying_score_lag2",
+      "importance": 0.033998359954680035
+    },
+    {
+      "feature": "sar_water_persistence_lag3",
+      "importance": 0.0311847934866785
+    },
+    {
+      "feature": "low_lying_score",
+      "importance": 0.031037857416625368
+    },
+    {
+      "feature": "low_lying_score_lag1",
+      "importance": 0.028115126947710855
+    },
+    {
+      "feature": "low_lying_score_lag3",
+      "importance": 0.027569874988256214
+    },
+    {
+      "feature": "sar_water_persistence_lag2",
+      "importance": 0.02527399048694865
+    },
+    {
+      "feature": "low_lying_score_roll3",
+      "importance": 0.024510009700985668
+    },
+    {
+      "feature": "rainfall_accumulation_roll3",
+      "importance": 0.014598454955732842
+    },
+    {
+      "feature": "sar_water_persistence",
+      "importance": 0.007655456129044213
+    },
+    {
+      "feature": "population_exposure",
+      "importance": 0.006177038180209815
+    },
+    {
+      "feature": "population_exposure_lag3",
+      "importance": 0.005887406389018112
+    },
+    {
+      "feature": "population_exposure_lag2",
+      "importance": 0.005514255959773539
+    },
+    {
+      "feature": "population_exposure_roll3",
+      "importance": 0.00523734546688579
+    },
+    {
+      "feature": "rainfall_accumulation_lag2",
+      "importance": 0.004540293678545559
+    },
+    {
+      "feature": "population_exposure_lag1",
+      "importance": 0.00385645441825786
+    },
+    {
+      "feature": "sar_water_persistence_lag1",
+      "importance": -0.0005982545342176793
+    }
+  ],
   "model_paths": {
     "baseline": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\baseline_model.joblib",
     "temporal": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\temporal_model.joblib"
