@@ -228,6 +228,7 @@ The-Machine-Learners/
 │   ├── run_evaluation.py
 │   ├── run_api.py
 │   └── run_frontend.py
+├── tests/smoke/                # Pytest smoke tests (features, model, API)
 ├── data/
 │   ├── raw/                     # Per-city, per-source, per-month
 │   │   ├── bengaluru/           # dem/, era5/, ghsl/, osm_roads/, sentinel_1/, sentinel_2/, worldpop/

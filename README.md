@@ -137,6 +137,7 @@ The-Machine-Learners/
 │   ├── api/                    # FastAPI application
 │   └── frontend/               # Streamlit dashboard
 ├── scripts/                    # Runnable entrypoints (one per pipeline step)
+├── tests/smoke/                # Pytest smoke tests (features, model, API)
 ├── data/
 │   ├── raw/                    # Per-city, per-source, per-month raw files
 │   ├── processed/              # Monthly parquets (64 rows each)
