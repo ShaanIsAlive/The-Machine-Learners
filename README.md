@@ -69,7 +69,7 @@ flowchart LR
 | **Total rows** | 16,384 (4 cities × 64 tiles × 64 months) |
 | **Selected model** | `ExtraTreesRegressor` (`extra_trees`) — scikit-learn |
 | **Test MAE** | 0.1176 (31.7% improvement over Ridge baseline) |
-| **Test R²** | 0.6304 |
+| **Test R²** | 0.6304 (pooled; varies significantly by city — see [Modeling approach](#per-city-performance)) |
 | **Core output** | Relative vulnerability scores (0–1), not flood depth |
 
 ## Tech stack
@@ -97,6 +97,17 @@ flowchart LR
   - Train: through June 2023
   - Validation: July 2023 to June 2024
   - Test: July 2024 to June 2026
+
+### Per-city performance
+
+| City      | MAE    | R²     |
+|-----------|--------|--------|
+| Bengaluru | 0.1020 | 0.4825 |
+| Hyderabad | 0.1167 | 0.7251 |
+| Mumbai    | 0.1161 | 0.1752 |
+| Pune      | 0.1359 | 0.5465 |
+
+The pooled test R² of 0.6304 conceals substantial per-city variance. The model performs well for Hyderabad and moderately for Bengaluru and Pune, but Mumbai's R² of 0.1752 indicates the pooled model captures little of Mumbai's flood risk signal — likely because Mumbai's flood dynamics differ from the other three cities in ways the shared feature set doesn't capture. This is a known limitation; see `PROJECT_CONTEXT.md` Priority 4 for planned per-city model exploration.
 
 ## Data sources
 

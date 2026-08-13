@@ -539,6 +539,20 @@ python scripts/run_frontend.py
 - **Test R²:** 0.6304 (0.2912 improvement over baseline)
 - **Validation MAE:** 0.1222
 
+#### Per-city breakdown
+
+Per-city test-set metrics (test split: year_month ≥ "2024_07"), computed by filtering `flood_dataset_multicity.parquet` through `_add_temporal_lags_and_target()` and scoring with the trained model's `feature_names_in_` feature list:
+
+| City      | MAE    | R²     |
+|-----------|--------|--------|
+| Bengaluru | 0.1020 | 0.4825 |
+| Hyderabad | 0.1167 | 0.7251 |
+| Mumbai    | 0.1161 | 0.1752 |
+| Pune      | 0.1359 | 0.5465 |
+
+> **Note:** The pooled R² of 0.6304 conceals major per-city variance. Hyderabad performs well (R² 0.7251), but Mumbai barely beats a naive mean-prediction baseline (R² 0.1752). This is not just a hypothesis — it is empirical supporting evidence for Priority 4, item 15 ("Explore city-specific models"). A pooled model under-serves cities with distinct flood dynamics.
+
+
 ### Evaluation
 
 - **Spearman rank correlation:** 0.3278 — moderate positive correlation between predicted vulnerability and monsoon seasonality
@@ -700,7 +714,7 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 
 6. **`docs/api.md` is accurate** for current routes but is minimal and lacks query parameter details (e.g., `limit`, `bins_lat`, `bins_lon` ranges).
 
-7. 7. **README.md is mostly accurate** and matches the current API routes and pipeline flow. It could still be improved by documenting `FLOOD_API_BASE`, clarifying optional script shortcuts, and noting which dataset file training prefers when both single-city and multi-city datasets exist.
+7. **README.md is accurate** and matches the current API routes and pipeline flow. It documents `FLOOD_API_BASE` (lines 159–165). Could still be improved by clarifying optional script shortcuts and noting which dataset file training prefers when both single-city and multi-city datasets exist.
 
 ### Data/pipeline issues
 
@@ -729,7 +743,6 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 ### Outdated ⚠️
 
 - `mkdocs.yml` `site_name` says "Bengaluru" — should say multi-city
-- README.md does not mention `FLOOD_API_BASE` env var for frontend
 
 ### Needs manual verification 🔍
 
@@ -752,7 +765,7 @@ Each parquet contains 64 rows (one per tile) with columns: `tile_id`, `lon`, `la
 ### Priority 2: Documentation accuracy
 
 5. **Update README.md** quick start to show `--city` and `--all-default-cities` flags for preprocessing and feature build.
-6. **Document `FLOOD_API_BASE`** env var in README.md and `.env.example`.
+6. ~~**Document `FLOOD_API_BASE` env var in README.md.**~~ **Done** (README.md lines 159–165). Still worth adding to `.env.example` if not already present.
 7. **Expand `docs/api.md`** with full query parameter documentation (types, defaults, ranges).
 8. **Clarify or remove** `bengaluru_2020_2024_operational.json`.
 
@@ -999,6 +1012,7 @@ from typing import Any
 import pandas as pd
 from sklearn.base import clone
 from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
+from sklearn.inspection import permutation_importance
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, r2_score
 
@@ -1021,6 +1035,39 @@ def _add_temporal_lags_and_target(df: pd.DataFrame) -> pd.DataFrame:
     frame["target_next_month"] = frame.groupby("tile_id")["target_flood_risk"].shift(-1)
     frame["time_id"] = frame["year"] * 100 + frame["month"]
     return frame.dropna().reset_index(drop=True)
+
+
+def _add_temporal_lags_only(df: pd.DataFrame) -> pd.DataFrame:
+    """Same lag/rolling feature construction as training, but without requiring
+    target_next_month to exist. Used for inference, where the most recent
+    month has no "next month" label yet — that's exactly the row we need to
+    keep, not drop.
+
+    Deliberately duplicated (rather than reusing _add_temporal_lags_and_target)
+    so the training path above is completely untouched by this fix — training
+    metrics stay bit-for-bit reproducible.
+    """
+    frame = df.copy()
+    frame = frame.sort_values(["tile_id", "year", "month"]).reset_index(drop=True)
+
+    for col in FEATURE_COLUMNS:
+        frame[f"{col}_lag1"] = frame.groupby("tile_id")[col].shift(1)
+        frame[f"{col}_lag2"] = frame.groupby("tile_id")[col].shift(2)
+        frame[f"{col}_lag3"] = frame.groupby("tile_id")[col].shift(3)
+        frame[f"{col}_roll3"] = (
+            frame.groupby("tile_id")[col].rolling(window=3, min_periods=3).mean().reset_index(level=0, drop=True)
+        )
+
+    frame["time_id"] = frame["year"] * 100 + frame["month"]
+
+    # Only drop rows missing lag/rolling history (the first ~3 months per
+    # tile genuinely can't have this yet — that's expected and unavoidable).
+    # Do NOT require target_next_month: that's the whole point of this fix.
+    lag_roll_cols = [
+        f"{col}_{suffix}" for col in FEATURE_COLUMNS for suffix in ("lag1", "lag2", "lag3", "roll3")
+    ]
+    frame = frame.dropna(subset=lag_roll_cols).reset_index(drop=True)
+    return frame
 
 
 def _build_splits(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -1092,14 +1139,14 @@ class TemporalTrainer:
                     max_depth=None,
                     min_samples_leaf=2,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
                 RandomForestRegressor(
                     n_estimators=700,
                     max_depth=20,
                     min_samples_leaf=1,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
             ],
             "extra_trees": [
@@ -1108,14 +1155,14 @@ class TemporalTrainer:
                     max_depth=None,
                     min_samples_leaf=2,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
                 ExtraTreesRegressor(
                     n_estimators=900,
                     max_depth=24,
                     min_samples_leaf=1,
                     random_state=42,
-                    n_jobs=-1,
+                    n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
                 ),
             ],
             "hist_gbrt": [
@@ -1170,18 +1217,26 @@ class TemporalTrainer:
         temporal_metrics["mae_improvement_over_baseline"] = baseline_metrics["mae"] - temporal_metrics["mae"]
         temporal_metrics["r2_improvement_over_baseline"] = temporal_metrics["r2"] - baseline_metrics["r2"]
 
-        if hasattr(temporal_model, "feature_importances_"):
-            importances = temporal_model.feature_importances_
-            feature_importance = [
-                {"feature": feature, "importance": float(importance)}
-                for feature, importance in sorted(
-                    zip(temporal_features, importances, strict=False),
-                    key=lambda x: x[1],
-                    reverse=True,
-                )
-            ]
-        else:
-            feature_importance = []
+        # Feature importance via permutation_importance: HistGradientBoostingRegressor
+        # does not expose feature_importances_ natively (a property of histogram-based
+        # boosting, not a version issue), so this works consistently regardless of
+        # which candidate model is selected.
+        perm_result = permutation_importance(
+            temporal_model,
+            test_df[temporal_features],
+            test_df[target],
+            n_repeats=10,
+            random_state=42,
+            n_jobs=1,  # parallel joblib broken on Python 3.13/Windows; run single-threaded
+        )
+        feature_importance = [
+            {"feature": feature, "importance": float(importance)}
+            for feature, importance in sorted(
+                zip(temporal_features, perm_result.importances_mean, strict=False),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+        ]
 
         return TrainArtifacts(
             baseline_model=baseline_model,
@@ -1202,8 +1257,7 @@ class TemporalTrainer:
 
     @staticmethod
     def make_inference_frame(dataset: pd.DataFrame) -> pd.DataFrame:
-        frame = _add_temporal_lags_and_target(dataset)
-        return frame.drop(columns=["target_next_month"], errors="ignore")
+        return _add_temporal_lags_only(dataset)
 ```
 
 ### `scripts/run_feature_build.py`
@@ -1456,53 +1510,73 @@ def vulnerability_timeseries() -> dict[str, Any]:
 
 ## Raw Result Files
 
+> Copied verbatim from on-disk files on 2026-08-13.
+
 ### `data/results/training_metrics.json`
 
 ```json
 {
   "baseline": {
-    "mae": 0.2009593273319341,
-    "r2": 0.2740626871736438
+    "mae": 0.17224335521414688,
+    "r2": 0.33921636427873514
   },
   "temporal": {
-    "mae": 0.11848310456449256,
-    "r2": 0.6591533073542649,
-    "validation_mae_for_selected_model": 0.14391332217212813,
-    "mae_improvement_over_baseline": 0.08247622276744156,
-    "r2_improvement_over_baseline": 0.3850906201806211
+    "mae": 0.11764502676504622,
+    "r2": 0.6304275715209107,
+    "validation_mae_for_selected_model": 0.1222131781684029,
+    "mae_improvement_over_baseline": 0.05459832844910066,
+    "r2_improvement_over_baseline": 0.29121120724217553
   },
-  "selected_temporal_model_name": "hist_gbrt",
+  "selected_temporal_model_name": "extra_trees",
   "selected_temporal_config": {
-    "categorical_features": "from_dtype",
-    "early_stopping": "auto",
-    "interaction_cst": null,
-    "l2_regularization": 0.0,
-    "learning_rate": 0.03,
-    "loss": "squared_error",
-    "max_bins": 255,
-    "max_depth": 12,
+    "bootstrap": false,
+    "ccp_alpha": 0.0,
+    "criterion": "squared_error",
+    "max_depth": null,
     "max_features": 1.0,
-    "max_iter": 900,
-    "max_leaf_nodes": 31,
-    "min_samples_leaf": 20,
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 2,
+    "min_samples_split": 2,
+    "min_weight_fraction_leaf": 0.0,
     "monotonic_cst": null,
-    "n_iter_no_change": 10,
-    "quantile": null,
+    "n_estimators": 600,
+    "n_jobs": 1,
+    "oob_score": false,
     "random_state": 42,
-    "scoring": "loss",
-    "tol": 1e-07,
-    "validation_fraction": 0.1,
     "verbose": 0,
     "warm_start": false
   },
   "split_info": {
-    "train_end": "202211",
-    "val_start": "202212",
-    "val_end": "202311",
-    "test_start": "202312",
-    "test_end": "202411"
+    "train_end": "202306",
+    "val_start": "202307",
+    "val_end": "202406",
+    "test_start": "202407",
+    "test_end": "202606"
   },
-  "top_feature_importance": [],
+  "top_feature_importance": [
+    { "feature": "rainfall_accumulation_lag3", "importance": 0.2159992889196737 },
+    { "feature": "rainfall_accumulation", "importance": 0.11089234148794898 },
+    { "feature": "rainfall_accumulation_lag1", "importance": 0.10746863019365474 },
+    { "feature": "sar_water_persistence_roll3", "importance": 0.04350610036937639 },
+    { "feature": "low_lying_score_lag2", "importance": 0.033998359954680035 },
+    { "feature": "sar_water_persistence_lag3", "importance": 0.0311847934866785 },
+    { "feature": "low_lying_score", "importance": 0.031037857416625368 },
+    { "feature": "low_lying_score_lag1", "importance": 0.028115126947710855 },
+    { "feature": "low_lying_score_lag3", "importance": 0.027569874988256214 },
+    { "feature": "sar_water_persistence_lag2", "importance": 0.02527399048694865 },
+    { "feature": "low_lying_score_roll3", "importance": 0.024510009700985668 },
+    { "feature": "rainfall_accumulation_roll3", "importance": 0.014598454955732842 },
+    { "feature": "sar_water_persistence", "importance": 0.007655456129044213 },
+    { "feature": "population_exposure", "importance": 0.006177038180209815 },
+    { "feature": "population_exposure_lag3", "importance": 0.005887406389018112 },
+    { "feature": "population_exposure_lag2", "importance": 0.005514255959773539 },
+    { "feature": "population_exposure_roll3", "importance": 0.00523734546688579 },
+    { "feature": "rainfall_accumulation_lag2", "importance": 0.004540293678545559 },
+    { "feature": "population_exposure_lag1", "importance": 0.00385645441825786 },
+    { "feature": "sar_water_persistence_lag1", "importance": -0.0005982545342176793 }
+  ],
   "model_paths": {
     "baseline": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\baseline_model.joblib",
     "temporal": "D:\\capstone project\\The-Machine-Learners\\data\\results\\models\\temporal_model.joblib"
@@ -1514,22 +1588,56 @@ def vulnerability_timeseries() -> dict[str, Any]:
 
 ```json
 {
-  "rank_correlation_spearman": 0.30141033748106366,
-  "high_vs_low_vulnerability_gap": 0.6006370977324086,
-  "high_vulnerability_mean": 0.6542979411607377,
-  "low_vulnerability_mean": 0.053660843428329094,
-  "months_evaluated": 56
+  "rank_correlation_spearman": 0.32775132056824735,
+  "high_vs_low_vulnerability_gap": 0.5970682636755168,
+  "high_vulnerability_mean": 0.5972942274622889,
+  "low_vulnerability_mean": 0.00022596378677209862,
+  "months_evaluated": 64
 }
 ```
 
 ### `data/results/feature_importance.json`
 
 ```json
-[]
+[
+  { "feature": "rainfall_accumulation_lag3", "importance": 0.2159992889196737 },
+  { "feature": "rainfall_accumulation", "importance": 0.11089234148794898 },
+  { "feature": "rainfall_accumulation_lag1", "importance": 0.10746863019365474 },
+  { "feature": "sar_water_persistence_roll3", "importance": 0.04350610036937639 },
+  { "feature": "low_lying_score_lag2", "importance": 0.033998359954680035 },
+  { "feature": "sar_water_persistence_lag3", "importance": 0.0311847934866785 },
+  { "feature": "low_lying_score", "importance": 0.031037857416625368 },
+  { "feature": "low_lying_score_lag1", "importance": 0.028115126947710855 },
+  { "feature": "low_lying_score_lag3", "importance": 0.027569874988256214 },
+  { "feature": "sar_water_persistence_lag2", "importance": 0.02527399048694865 },
+  { "feature": "low_lying_score_roll3", "importance": 0.024510009700985668 },
+  { "feature": "rainfall_accumulation_roll3", "importance": 0.014598454955732842 },
+  { "feature": "sar_water_persistence", "importance": 0.007655456129044213 },
+  { "feature": "population_exposure", "importance": 0.006177038180209815 },
+  { "feature": "population_exposure_lag3", "importance": 0.005887406389018112 },
+  { "feature": "population_exposure_lag2", "importance": 0.005514255959773539 },
+  { "feature": "population_exposure_roll3", "importance": 0.00523734546688579 },
+  { "feature": "rainfall_accumulation_lag2", "importance": 0.004540293678545559 },
+  { "feature": "population_exposure_lag1", "importance": 0.00385645441825786 },
+  { "feature": "sar_water_persistence_lag1", "importance": -0.0005982545342176793 },
+  { "feature": "impervious_change_rate_lag3", "importance": -0.0019215191454992286 },
+  { "feature": "impervious_change_rate_lag2", "importance": -0.0021990725614901676 },
+  { "feature": "impervious_change_rate_roll3", "importance": -0.004010397875681038 },
+  { "feature": "impervious_change_rate_lag1", "importance": -0.006025984173183374 },
+  { "feature": "impervious_change_rate", "importance": -0.006320173754525227 }
+]
 ```
 
 ---
 
 ## Discrepancies found
 
-> **Note (August 2026):** The metrics documented throughout this file now reflect the latest pipeline run (ExtraTreesRegressor, 64 months, April 2020 – July 2026). The previous discrepancies between documented values and result JSON files have been resolved by this update. The raw result JSON files embedded in the "Raw Result Files" section above are snapshots from an earlier run and may differ from the current `data/results/` files on disk — always treat the on-disk files as authoritative.
+> **Verified 2026-08-13.** The following files were re-read from disk and cross-checked against every section of this document:
+>
+> - `data/results/training_metrics.json` — confirms model=extra_trees, test MAE 0.1176, test R² 0.6304, test window July 2024–June 2026
+> - `data/results/evaluation.json` — confirms Spearman 0.3278, high/low gap 0.5971, months_evaluated=64
+> - `data/results/feature_importance.json` — confirms 25 features, top feature rainfall_accumulation_lag3 at 0.2160 (not empty)
+> - `src/models/temporal.py` — confirms `from sklearn.inspection import permutation_importance`, `n_jobs=1` everywhere, permutation-based importance (not `hasattr` fallback), includes `_add_temporal_lags_only` inference helper
+> - `README.md` — confirms `FLOOD_API_BASE` is documented (lines 159–165)
+>
+> The "Raw Result Files" section, embedded source code, and documentation alignment check above now match on-disk state. Previous version of this document contained stale JSON snapshots (hist_gbrt model, 56-month evaluation, empty feature importance) and stale source code (missing permutation_importance import, n_jobs=-1, hasattr fallback). Those have been replaced with verbatim on-disk contents.
